@@ -63,6 +63,45 @@ export function validateEndpoint(value: unknown): string {
   return parseEndpoint(value.endpoint, 'subscription endpoint is invalid')
 }
 
+export const DEFAULT_TEST_MESSAGE = {
+  title: 'DeepSeek Harness',
+  body: 'Web Push is working.',
+} as const
+
+export interface TestMessage {
+  readonly title: string
+  readonly body: string
+}
+
+const MAX_TEST_TITLE_LENGTH = 120
+const MAX_TEST_BODY_LENGTH = 1000
+
+/**
+ * The debug button ships fixed copy, which cannot answer the question an
+ * operator actually has: how does a long or awkward notification wrap on this
+ * phone. The body is therefore caller-supplied, defaulting to the original
+ * strings so every existing caller keeps working. An absent field takes the
+ * default; an explicit empty string is honoured, so a title-only notification
+ * can be previewed.
+ */
+export function validateTestMessage(value: unknown): TestMessage {
+  if (value === undefined) return { ...DEFAULT_TEST_MESSAGE }
+  if (!isRecord(value)) throw new Error('test notification must be an object')
+  return {
+    title: testField(value.title, 'title', MAX_TEST_TITLE_LENGTH, DEFAULT_TEST_MESSAGE.title),
+    body: testField(value.body, 'body', MAX_TEST_BODY_LENGTH, DEFAULT_TEST_MESSAGE.body),
+  }
+}
+
+function testField(value: unknown, label: string, maxLength: number, fallback: string): string {
+  if (value === undefined || value === null) return fallback
+  if (typeof value !== 'string') throw new Error(`test notification ${label} must be a string`)
+  if (value.length > maxLength) {
+    throw new Error(`test notification ${label} must be at most ${String(maxLength)} characters`)
+  }
+  return value
+}
+
 export function validateStoreState(value: unknown): PushStoreState {
   if (!isRecord(value) || value.version !== 1 || !isRecord(value.vapid) || !Array.isArray(value.subscriptions)) {
     throw new Error('push storage has an unsupported format')
@@ -100,7 +139,38 @@ function parseEndpoint(value: unknown, invalidMessage: string): string {
   if (parsed.protocol !== 'https:' || parsed.username !== '' || parsed.password !== '' || parsed.hash !== '') {
     throw new Error('subscription endpoint must be an HTTPS URL without credentials or a fragment')
   }
+  if (isPrivateHost(parsed.hostname)) {
+    throw new Error('subscription endpoint must not address a private, loopback, or link-local host')
+  }
   return value
+}
+
+/**
+ * A stored endpoint is the address the harness POSTs to on every notification,
+ * so without this an authenticated client could aim the sender at its own LAN.
+ * Every legitimate value is a public Push service the browser chose, so
+ * rejecting the private ranges costs no real endpoint.
+ */
+function isPrivateHost(hostname: string): boolean {
+  const host = hostname.replace(/^\[/, '').replace(/\]$/, '').toLowerCase()
+  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) return true
+  if (host.includes(':')) {
+    if (host === '::' || host === '::1') return true
+    // fc00::/7 unique-local and fe80::/10 link-local. Requiring the colon keeps
+    // these from firing on a hostname that merely begins with "fc".
+    if (/^f[cd][0-9a-f]{2}:/.test(host)) return true
+    if (/^fe[89ab][0-9a-f]:/.test(host)) return true
+    return false
+  }
+  const octets = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host)
+  if (octets === null) return false
+  const first = Number(octets[1])
+  const second = Number(octets[2])
+  if (first === 0 || first === 10 || first === 127) return true
+  if (first === 169 && second === 254) return true
+  if (first === 172 && second >= 16 && second <= 31) return true
+  if (first === 192 && second === 168) return true
+  return false
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

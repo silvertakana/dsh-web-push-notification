@@ -48,4 +48,49 @@ self.addEventListener('notificationclick', (event) => {
     return self.clients.openWindow(target);
   }));
 });
+
+function base64UrlToBytes(value) {
+  const normalized = String(value).replace(/-/g, '+').replace(/_/g, '/');
+  const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return bytes;
+}
+
+function post(path, body) {
+  return fetch(path, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+// A browser silently rotates a Push subscription over time. Without this the
+// saved endpoint goes stale and delivery stops with no visible symptom, so the
+// worker renews itself and retires the endpoint it replaced.
+self.addEventListener('pushsubscriptionchange', (event) => {
+  const previous = event.oldSubscription;
+  event.waitUntil((async () => {
+    try {
+      let next = event.newSubscription;
+      if (!next) {
+        const response = await fetch('/__dsh/web-push/config', { credentials: 'same-origin' });
+        const config = await response.json();
+        next = await self.registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: base64UrlToBytes(config.publicKey),
+        });
+      }
+      await post('/__dsh/web-push/subscribe', next.toJSON());
+      if (previous && previous.endpoint !== next.endpoint) {
+        await post('/__dsh/web-push/unsubscribe', { endpoint: previous.endpoint });
+      }
+    } catch (_) {
+      // A failed renewal leaves a stale record behind; the settings section
+      // reconciles the subscription again on the next visit.
+    }
+  })());
+});
 `

@@ -28,7 +28,14 @@ describe('PushStore', () => {
     store.upsert({ ...subscription, keys: { p256dh: 'AQID', auth: 'AQI' } })
     expect(store.list()).toHaveLength(1)
     expect(JSON.parse(readFileSync(path, 'utf8')).subscriptions).toHaveLength(1)
-    expect(statSync(path).mode & 0o777).toBe(0o600)
+    const mode = statSync(path).mode & 0o777
+    if (process.platform === 'win32') {
+      // Windows has no POSIX group/other bits, so chmod(0o600) reports 0o666.
+      // The portable guarantee left to assert is that the owner can write.
+      expect(mode & 0o200).toBe(0o200)
+    } else {
+      expect(mode).toBe(0o600)
+    }
     expect(PushStore.open(path, () => ({ publicKey: 'wrong', privateKey: 'wrong' })).publicKey).toBe(keys.publicKey)
   })
 

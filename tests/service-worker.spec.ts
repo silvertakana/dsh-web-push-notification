@@ -9,4 +9,14 @@ describe('Service Worker source', () => {
     expect(SERVICE_WORKER_SOURCE).toContain('openWindow')
     expect(SERVICE_WORKER_SOURCE).not.toContain('caches.open')
   })
+
+  it('renews a rotated Push subscription without a page in the loop', () => {
+    expect(SERVICE_WORKER_SOURCE).toContain("addEventListener('pushsubscriptionchange'")
+    expect(SERVICE_WORKER_SOURCE).toContain('event.oldSubscription')
+    expect(SERVICE_WORKER_SOURCE).toContain('event.newSubscription')
+    expect(SERVICE_WORKER_SOURCE).toContain('pushManager.subscribe')
+    expect(SERVICE_WORKER_SOURCE).toContain('/__dsh/web-push/subscribe')
+    expect(SERVICE_WORKER_SOURCE).toContain('/__dsh/web-push/unsubscribe')
+    expect(SERVICE_WORKER_SOURCE).not.toContain('caches.open')
+  })
 })

@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
-import { apply } from '../src/index.ts'
+import { apply, Config, DEFAULT_MAX_REQUEST_BODY_BYTES, DEFAULT_VAPID_SUBJECT } from '../src/index.ts'
 import { PushStore } from '../src/store.ts'
 
 const webPush = vi.hoisted(() => ({
@@ -50,9 +50,10 @@ describe('host plugin registration', () => {
     }
     apply(ctx as never, {
       vapidSubject: 'mailto:test@example.invalid',
+      storagePath: join(root, 'state.json'),
       maxRequestBodyBytes: 1024,
     })
-    expect(existsSync(join(root, 'web-push.json'))).toBe(true)
+    expect(existsSync(join(root, 'state.json'))).toBe(true)
     expect(routes.map((route) => route.path)).toEqual([
       '/__dsh/web-push/config',
       '/__dsh/web-push/sw.js',
@@ -109,6 +110,51 @@ describe('host plugin registration', () => {
     )
     expect(bodies).toEqual(['The answer.', 'Turn 1 completed.'])
     expect(warn).toHaveBeenCalledTimes(1)
+    // A short TTL is what drops a notification while the phone is asleep.
+    expect(webPush.sendNotification).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.any(String),
+      expect.objectContaining({ TTL: 86_400 }),
+    )
+  })
+
+  it('boots with documented defaults when the profile configures nothing', () => {
+    // No field is required, so a profile with no config block cannot fail boot.
+    expect(Config({})).toMatchObject({
+      vapidSubject: DEFAULT_VAPID_SUBJECT,
+      maxRequestBodyBytes: DEFAULT_MAX_REQUEST_BODY_BYTES,
+    })
+  })
+
+  it('keeps push state under the Harness home instead of the installed package directory', () => {
+    root = mkdtempSync(join(tmpdir(), 'dsh-web-push-apply-'))
+    const packageBase = mkdtempSync(join(tmpdir(), 'dsh-web-push-pkg-'))
+    const previousHome = process.env.DSH_HOME
+    process.env.DSH_HOME = root
+    try {
+      const ctx = {
+        baseUrl: `${pathToFileURL(packageBase).href}/`,
+        connection: { requestRejection: () => undefined },
+        webServer: { register: () => () => {} },
+        logger: { warn: vi.fn() },
+        on() {
+          return () => {}
+        },
+        effect(factory: () => (() => void) | undefined) {
+          factory()
+        },
+      }
+      apply(ctx as never, {
+        vapidSubject: 'mailto:test@example.invalid',
+        maxRequestBodyBytes: 1024,
+      })
+      expect(existsSync(join(root, 'web-push', 'state.json'))).toBe(true)
+      expect(existsSync(join(packageBase, 'web-push.json'))).toBe(false)
+    } finally {
+      if (previousHome === undefined) delete process.env.DSH_HOME
+      else process.env.DSH_HOME = previousHome
+      rmSync(packageBase, { recursive: true, force: true })
+    }
   })
 })
 
