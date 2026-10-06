@@ -7,7 +7,7 @@ import { HttpError, readJson, sendJson, sendText } from './http.ts'
 import type { PushSender } from './sender.ts'
 import { SERVICE_WORKER_SOURCE } from './service-worker.ts'
 import type { PushStore } from './store.ts'
-import { validateEndpoint, validateSubscription } from './validation.ts'
+import { validateEndpoint, validateSubscription, validateTestMessage } from './validation.ts'
 
 export const ROUTE_PREFIX = '/__dsh/web-push'
 export const CONFIG_PATH = `${ROUTE_PREFIX}/config`
@@ -93,13 +93,15 @@ export function createPushRoutes(options: PushRouteOptions): WebRoute[] {
       kind: 'exact',
       path: TEST_PATH,
       handler: method('POST', async (req, res) => {
-        await readJson(req, options.maxRequestBodyBytes, true)
+        const message = await clientInput(async () =>
+          validateTestMessage(await readJson(req, options.maxRequestBodyBytes, true)),
+        )
         const report = await deliver(
           options.store,
           options.sender,
           {
-            title: 'DeepSeek Harness',
-            body: 'Web Push is working.',
+            title: message.title,
+            body: message.body,
             tag: `dsh-web-push-test-${String(Date.now())}`,
             url: '/',
           },

@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useState, type CSSProperties } from 'react'
-import { Button, IconChevronDownOutline14, StateDot, type StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
+import {
+  Button,
+  IconChevronDownOutlineRegular,
+  StateDot,
+  type StateDotState,
+} from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import {
   applicationServerKey,
@@ -107,6 +112,25 @@ const checkboxStyle: CSSProperties = {
   accentColor: 'var(--dsw-alias-state-success-primary)',
 }
 
+const testFieldStyle: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 6,
+  marginTop: 12,
+}
+
+const testInputStyle: CSSProperties = {
+  width: '100%',
+  boxSizing: 'border-box',
+  padding: '8px 12px',
+  border: '1px solid var(--dsw-alias-border-l2)',
+  borderRadius: 8,
+  background: 'var(--dsw-alias-bg-module-platform)',
+  color: 'var(--dsw-alias-label-primary)',
+  font: 'inherit',
+  fontSize: 13,
+}
+
 export function WebPushSettingsSection(_props: PropsRuntime<'settings.section'>): JSX.Element {
   const [status, setStatus] = useState<Status>('loading')
   const [busy, setBusy] = useState(false)
@@ -114,6 +138,8 @@ export function WebPushSettingsSection(_props: PropsRuntime<'settings.section'>)
   const [preferences, setPreferences] = useState<NotificationPreferences>(() => ({
     ...DEFAULT_NOTIFICATION_PREFERENCES,
   }))
+  const [testTitle, setTestTitle] = useState('')
+  const [testBody, setTestBody] = useState('')
 
   const refresh = useCallback(async (currentPreferences: NotificationPreferences): Promise<void> => {
     const capability = browserCapability()
@@ -206,7 +232,12 @@ export function WebPushSettingsSection(_props: PropsRuntime<'settings.section'>)
     setBusy(true)
     setMessage(undefined)
     try {
-      const result = await sendTest()
+      // A blank field keeps the server default, so the button behaves exactly as
+      // it did before unless the operator deliberately overrides the copy.
+      const result = await sendTest({
+        title: testTitle === '' ? undefined : testTitle,
+        body: testBody === '' ? undefined : testBody,
+      })
       setMessage(
         `Test sent: ${String(result.sent)}, removed: ${String(result.removed)}, failed: ${String(result.failed)}.`,
       )
@@ -316,7 +347,7 @@ export function WebPushSettingsSection(_props: PropsRuntime<'settings.section'>)
             <option value="summary">Summary only</option>
           </select>
           <span style={selectorIconStyle}>
-            <IconChevronDownOutline14 />
+            <IconChevronDownOutlineRegular />
           </span>
         </div>
       </div>
@@ -357,6 +388,32 @@ export function WebPushSettingsSection(_props: PropsRuntime<'settings.section'>)
             Send test
           </Button>
         </div>
+        <label style={testFieldStyle}>
+          <span style={descriptionStyle}>Title (blank uses the default)</span>
+          <input
+            type="text"
+            value={testTitle}
+            placeholder="DeepSeek Harness"
+            disabled={busy || status !== 'subscribed'}
+            style={testInputStyle}
+            onChange={(event) => {
+              setTestTitle(event.currentTarget.value)
+            }}
+          />
+        </label>
+        <label style={testFieldStyle}>
+          <span style={descriptionStyle}>Body (blank uses the default)</span>
+          <input
+            type="text"
+            value={testBody}
+            placeholder="Web Push is working."
+            disabled={busy || status !== 'subscribed'}
+            style={testInputStyle}
+            onChange={(event) => {
+              setTestBody(event.currentTarget.value)
+            }}
+          />
+        </label>
       </div>
       {message === undefined ? null : (
         <p aria-live="polite" style={{ ...descriptionStyle, margin: '12px 0 0' }}>

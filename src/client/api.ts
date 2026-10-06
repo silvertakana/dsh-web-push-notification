@@ -61,11 +61,18 @@ export function waitForActiveServiceWorker(
   })
 }
 
-export function sendTest(): Promise<{ readonly sent: number; readonly removed: number; readonly failed: number }> {
+export interface TestNotificationMessage {
+  readonly title?: string
+  readonly body?: string
+}
+
+export function sendTest(
+  message: TestNotificationMessage = {},
+): Promise<{ readonly sent: number; readonly removed: number; readonly failed: number }> {
   return request(`${BASE}/test`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: '{}',
+    body: JSON.stringify(message),
   })
 }
 
