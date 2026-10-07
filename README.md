@@ -145,14 +145,22 @@ demanding the app cookie would silently hand back the grey placeholder disc
 browsers draw for a missing icon. The files are the app's own artwork, not
 state.
 
-Both are the dsh mark: the icon is the white whale on the `#151517` neutral
-ground the app UI itself uses, on a tile carrying its own rounded corners,
-because a large icon is drawn as-is where a launcher icon is masked by the
-system. The badge is the same whale as a white silhouette on transparency,
-since Chrome tints it with `PorterDuff SRC_ATOP` over white and only its alpha
-channel survives; a coloured badge would lose its contrast in the status bar.
-`tests/notification-art.spec.ts` decodes both files and fails on a saturated
-blue pixel, which is what the brand-blue whale these replaced was.
+The badge is the dsh mark as a white silhouette on transparency, since Chrome
+tints it with `PorterDuff SRC_ATOP` over white and only its alpha channel
+survives; a coloured badge would lose its contrast in the status bar.
+
+The large icon is deliberately **invisible** - a 192x192 PNG at alpha 1. Android
+draws the posting app's own icon in a notification's left slot whether or not the
+page supplies one, so any visible large icon adds a second animal beside it, and
+no Notification API option can remove the left one. The file has to remain a
+valid, correctly sized PNG all the same: Chromium substitutes a grey disc
+carrying the origin monogram when the icon is null or zero-width, so deleting the
+file, its route, or its dimensions would trade the second icon for a disc rather
+than removing it.
+
+`tests/notification-art.spec.ts` decodes both files, fails on a saturated blue
+pixel (the brand-blue whale these replaced), and pins the icon's non-zero
+dimensions and its invisible pixels.
 
 ## Service Worker scope
 
@@ -187,7 +195,9 @@ whatever root-scope worker owns the page.
 - Notification titles name the session they came from, using the Harness session
   title; the event-kind title remains the fallback before a session has one.
 - Notifications carry a large icon and a monochrome status-bar badge, so Chrome
-  no longer substitutes its grey letter placeholder disc.
+  no longer substitutes its grey letter placeholder disc. The large icon is
+  invisible by design, so the notification shows only the app's own icon; see the
+  artwork section above.
 - The notification tag includes the session id, so two sessions reaching the
   same turn and outcome no longer collapse into one row on the phone.
 - Subagent turns no longer notify by default. A subagent runs in a session of its

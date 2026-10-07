@@ -7,6 +7,13 @@ import { describe, expect, it } from 'vitest'
  * exported it. These two files were once a brand-blue whale on a transparent
  * canvas, which read as a second, differently coloured animal beside the app
  * icon in the shade. Nothing pinned that, so it shipped twice.
+ *
+ * The large icon is now deliberately invisible. Android draws the posting app's
+ * own icon in a notification's left slot whether or not the page supplies one, so
+ * a visible large icon can only ever add a second animal beside it. It has to
+ * remain a valid, correctly sized PNG all the same: Chromium replaces a null or
+ * zero-width icon with a grey disc carrying the origin monogram, which would be a
+ * third look, and the first case below pins exactly that.
  */
 
 type Png = {
@@ -84,23 +91,27 @@ const load = (name: string) => decodePng(readFileSync(new URL(`../public/${name}
 const icon = load('notification-icon.png')
 const badge = load('notification-badge.png')
 
-const GROUND = [0x15, 0x15, 0x17]
-const MARK = [0xf9, 0xfa, 0xfb]
-const near = (p: number[], target: number[], tolerance = 6) =>
-  p.slice(0, 3).every((value, index) => Math.abs(value - target[index]) <= tolerance)
 /** The retired artwork: a saturated blue, whichever way it is blended. */
 const isBrandBlue = (p: number[]) => p[3] > 128 && p[2] > 140 && p[2] - p[0] > 40 && p[2] - p[1] > 40
 
 describe('notification artwork', () => {
-  it('draws the app mark on the app ground', () => {
+  it('ships a present but invisible large icon, so only the app icon shows', () => {
+    // Non-zero dimensions are the load-bearing part: Chromium falls back to the
+    // grey origin monogram for a null or zero-width icon, so shrinking this away
+    // would trade the second animal for a disc rather than removing it.
     expect(icon.width).toBe(192)
     expect(icon.height).toBe(192)
-    // A large icon is drawn as-is, unlike a launcher icon that the system masks,
-    // so this tile carries its own ground and its own rounded corners.
-    expect(near(icon.at(0, 96), GROUND)).toBe(true)
-    expect(near(icon.at(96, 96), MARK)).toBe(true)
-    expect(icon.at(0, 0)[3]).toBe(0)
-    expect(icon.at(191, 191)[3]).toBe(0)
+
+    // Alpha 1 rather than 0: a fully transparent raster is the obvious thing for
+    // an unseen emptiness check to discard, and one step of alpha is invisible.
+    expect(icon.at(0, 0)[3]).toBe(1)
+    expect(icon.at(96, 96)[3]).toBe(1)
+
+    let visible = 0
+    for (let y = 0; y < icon.height; y++) {
+      for (let x = 0; x < icon.width; x++) if (icon.at(x, y)[3] > 1) visible++
+    }
+    expect(visible).toBe(0)
   })
 
   it('leaves no brand-blue pixel in either asset', () => {
