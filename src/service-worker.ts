@@ -8,6 +8,13 @@ const fallback = { title: 'DeepSeek Harness', body: 'A notification is ready.' }
 const icon = new URL('notification-icon.png', self.location).href;
 const badge = new URL('notification-badge.png', self.location).href;
 
+// This scope covers no application page, so no navigation ever triggers an
+// update check for this worker. Without these handlers a rebuilt worker stays in
+// the waiting state and the previous copy keeps handling push events until
+// every client it controls closes, which nothing under this scope ever does.
+self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
+
 function payloadOf(event) {
   if (!event.data) return fallback;
   try {

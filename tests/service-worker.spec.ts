@@ -25,4 +25,11 @@ describe('Service Worker source', () => {
     expect(SERVICE_WORKER_SOURCE).toContain("new URL('notification-badge.png', self.location)")
     expect(SERVICE_WORKER_SOURCE).toContain('{ body, tag, data, icon, badge }')
   })
+
+  it('takes over the moment a rebuilt worker installs', () => {
+    expect(SERVICE_WORKER_SOURCE).toContain("addEventListener('install'")
+    expect(SERVICE_WORKER_SOURCE).toContain('self.skipWaiting()')
+    expect(SERVICE_WORKER_SOURCE).toContain("addEventListener('activate'")
+    expect(SERVICE_WORKER_SOURCE).toContain('self.clients.claim()')
+  })
 })

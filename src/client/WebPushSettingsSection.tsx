@@ -10,6 +10,7 @@ import {
   applicationServerKey,
   loadConfig,
   reconcileSubscription,
+  refreshServiceWorker,
   registerSubscription,
   sendTest,
   subscriptionUsesApplicationServerKey,
@@ -149,6 +150,7 @@ export function WebPushSettingsSection(_props: PropsRuntime<'settings.section'>)
     }
     try {
       const config = await loadConfig()
+      await refreshServiceWorker(config)
       const subscriptionState = await reconcileSubscription(config, currentPreferences)
       if (subscriptionState === 'mismatched') {
         setStatus(Notification.permission)

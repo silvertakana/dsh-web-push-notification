@@ -7,6 +7,23 @@ export function loadConfig(): Promise<WebPushConfig> {
   return request<WebPushConfig>(`${BASE}/config`, { method: 'GET' })
 }
 
+/**
+ * Ask the browser to re-fetch the worker when the section opens.
+ *
+ * The registration is created once, when notifications are first enabled, and
+ * its scope covers no application page: an ordinary visit triggers no update
+ * check at all, so a rebuilt worker would otherwise never reach a browser that
+ * already had the previous one installed.
+ */
+export async function refreshServiceWorker(config: WebPushConfig): Promise<void> {
+  try {
+    const registration = await navigator.serviceWorker.getRegistration(config.serviceWorkerScope)
+    await registration?.update()
+  } catch {
+    // An unreachable update check leaves the installed worker in charge.
+  }
+}
+
 export function registerSubscription(
   subscription: PushSubscription,
   preferences: NotificationPreferences,
