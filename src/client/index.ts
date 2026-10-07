@@ -5,6 +5,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import { WebPushSettingsSection } from './WebPushSettingsSection.tsx'
+import { startPresenceReporting } from './presence.ts'
 
 export const inject = ['slots', 'uiWorkspace']
 
@@ -22,6 +23,7 @@ export function apply(ctx: ClientContext): void {
       WebPushSettingsSection,
     ),
   )
+  ctx.effect(() => startPresenceReporting(), 'dsh-web-push-notification: focus presence')
   ctx.effect(() => {
     if (!('serviceWorker' in navigator)) return () => {}
     const openSession = (value: unknown): void => {

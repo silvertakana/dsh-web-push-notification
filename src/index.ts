@@ -6,6 +6,7 @@ import type {} from '@deepseek-ai/dsh-host-webserver'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import { deliver } from './delivery.ts'
 import { notificationForEvent, sessionTitleOf } from './notification.ts'
+import { PresenceRegistry } from './presence.ts'
 import { createPushRoutes } from './routes.ts'
 import { createWebPushSender, generateVapidKeys } from './sender.ts'
 import { PushStore } from './store.ts'
@@ -59,6 +60,7 @@ export function apply(ctx: Context, config?: Config): void {
   const storagePath = config?.storagePath ?? defaultStoragePath()
   const maxRequestBodyBytes = config?.maxRequestBodyBytes ?? DEFAULT_MAX_REQUEST_BODY_BYTES
   const store = PushStore.open(storagePath, generateVapidKeys)
+  const presence = new PresenceRegistry()
   const sender = createWebPushSender(subject, {
     publicKey: store.publicKey,
     privateKey: store.privateKey,
@@ -71,6 +73,7 @@ export function apply(ctx: Context, config?: Config): void {
   const routes = createPushRoutes({
     store,
     sender,
+    presence,
     maxRequestBodyBytes,
     requestRejection: (request) => ctx.connection.requestRejection(request),
     onDeliveryFailure,
@@ -83,6 +86,10 @@ export function apply(ctx: Context, config?: Config): void {
   }, 'dsh-web-push-notification: routes')
   ctx.effect(() => {
     const dispose = ctx.on('session/event', (session: Session, event: SessionEvent) => {
+      // A page already in front of the user shows this change, so ringing every
+      // other device about it is noise. The settings test button deliberately
+      // bypasses this: a test is a request for a notification, not a report.
+      if (presence.anyActive()) return
       const events = session.snapshotEvents()
       const sessionTitle = sessionTitleOf(events)
       const summary = notificationForEvent(String(session.id), event, { bodyMode: 'summary', events, sessionTitle })

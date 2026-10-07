@@ -1,3 +1,4 @@
+import type { PresenceReport } from './presence.ts'
 import {
   DEFAULT_NOTIFICATION_PREFERENCES,
   type NotificationBodyMode,
@@ -61,6 +62,25 @@ export function validateEndpoint(value: unknown): string {
     throw new Error('subscription endpoint is missing')
   }
   return parseEndpoint(value.endpoint, 'subscription endpoint is invalid')
+}
+
+const MAX_PRESENCE_ID_LENGTH = 64
+const PRESENCE_ID = /^[A-Za-z0-9_-]+$/
+
+/**
+ * A presence report names the page that sent it and whether that page is in
+ * front of the user. The id is whatever the page invented for itself, so the
+ * shape is the whole contract: it is never used as a path or a key of trust,
+ * only as the name of an entry that expires on its own.
+ */
+export function validatePresence(value: unknown): PresenceReport {
+  if (!isRecord(value)) throw new Error('presence report must be an object')
+  const id = value.id
+  if (typeof id !== 'string' || id.length === 0 || id.length > MAX_PRESENCE_ID_LENGTH || !PRESENCE_ID.test(id)) {
+    throw new Error('presence client id is invalid')
+  }
+  if (typeof value.active !== 'boolean') throw new Error('presence active flag must be a boolean')
+  return { id, active: value.active }
 }
 
 export const DEFAULT_TEST_MESSAGE = {

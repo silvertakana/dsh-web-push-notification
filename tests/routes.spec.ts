@@ -3,12 +3,15 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { PRESENCE_PATH } from '../src/contract.ts'
+import { PresenceRegistry } from '../src/presence.ts'
 import {
   createPushRoutes,
   CONFIG_PATH,
   NOTIFICATION_BADGE_PATH,
   NOTIFICATION_ICON_PATH,
   SERVICE_WORKER_PATH,
+  type PushRouteOptions,
 } from '../src/routes.ts'
 import type { PushSender } from '../src/sender.ts'
 import { PushStore } from '../src/store.ts'
@@ -21,12 +24,19 @@ const subscription = {
 }
 
 let root: string | undefined
+let presence = new PresenceRegistry()
 const authenticated = () => undefined
 
 afterEach(() => {
   if (root !== undefined) rmSync(root, { recursive: true, force: true })
   root = undefined
+  presence = new PresenceRegistry()
 })
+
+/** Every route test shares one presence registry, so a report can be observed. */
+function routesFor(options: Omit<PushRouteOptions, 'presence'>): ReturnType<typeof createPushRoutes> {
+  return createPushRoutes({ presence, ...options })
+}
 
 function request(method: string, body?: unknown, contentType = 'application/json'): IncomingMessage {
   const raw = body === undefined ? '' : JSON.stringify(body)
@@ -96,7 +106,7 @@ describe('Web Push routes', () => {
     root = mkdtempSync(join(tmpdir(), 'dsh-web-push-routes-'))
     const store = PushStore.open(join(root, 'state.json'), () => ({ publicKey: 'AQID', privateKey: 'BAUG' }))
     const sender: PushSender = { send: vi.fn(async () => {}) }
-    const routes = createPushRoutes({ store, sender, maxRequestBodyBytes: 1024, requestRejection: authenticated })
+    const routes = routesFor({ store, sender, maxRequestBodyBytes: 1024, requestRejection: authenticated })
     const config = response()
     await find(CONFIG_PATH, routes).handler(request('GET'), config.response)
     expect(config.status).toBe(200)
@@ -119,7 +129,7 @@ describe('Web Push routes', () => {
         if (value.endpoint.endsWith('/one')) throw Object.assign(new Error('gone'), { statusCode: 410 })
       }),
     }
-    const routes = createPushRoutes({ store, sender, maxRequestBodyBytes: 1024, requestRejection: authenticated })
+    const routes = routesFor({ store, sender, maxRequestBodyBytes: 1024, requestRejection: authenticated })
     const subscribe = response()
     await find('/__dsh/web-push/subscribe', routes).handler(request('POST', subscription), subscribe.response)
     expect(subscribe.status).toBe(200)
@@ -135,7 +145,7 @@ describe('Web Push routes', () => {
     root = mkdtempSync(join(tmpdir(), 'dsh-web-push-routes-'))
     const store = PushStore.open(join(root, 'state.json'), () => ({ publicKey: 'AQID', privateKey: 'BAUG' }))
     store.upsert(subscription)
-    const routes = createPushRoutes({
+    const routes = routesFor({
       store,
       sender: {
         send: vi.fn(async () => {
@@ -155,7 +165,7 @@ describe('Web Push routes', () => {
   it('reports malformed client input without presenting a server failure', async () => {
     root = mkdtempSync(join(tmpdir(), 'dsh-web-push-routes-'))
     const store = PushStore.open(join(root, 'state.json'), () => ({ publicKey: 'AQID', privateKey: 'BAUG' }))
-    const routes = createPushRoutes({
+    const routes = routesFor({
       store,
       sender: { send: vi.fn(async () => {}) },
       maxRequestBodyBytes: 1024,
@@ -183,7 +193,7 @@ describe('Web Push routes', () => {
   it('rejects requests that are not authenticated by the Harness connection', async () => {
     root = mkdtempSync(join(tmpdir(), 'dsh-web-push-routes-'))
     const store = PushStore.open(join(root, 'state.json'), () => ({ publicKey: 'AQID', privateKey: 'BAUG' }))
-    const routes = createPushRoutes({
+    const routes = routesFor({
       store,
       sender: { send: vi.fn(async () => {}) },
       maxRequestBodyBytes: 1024,
@@ -200,7 +210,7 @@ describe('Web Push routes', () => {
     const store = PushStore.open(join(root, 'state.json'), () => ({ publicKey: 'AQID', privateKey: 'BAUG' }))
     store.upsert(subscription)
     const sent: string[] = []
-    const routes = createPushRoutes({
+    const routes = routesFor({
       store,
       sender: { send: async (_subscription, payload) => void sent.push(String(payload)) },
       maxRequestBodyBytes: 4096,
@@ -225,7 +235,7 @@ describe('Web Push routes', () => {
     const store = PushStore.open(join(root, 'state.json'), () => ({ publicKey: 'AQID', privateKey: 'BAUG' }))
     store.upsert(subscription)
     const sent: string[] = []
-    const routes = createPushRoutes({
+    const routes = routesFor({
       store,
       sender: { send: async (_subscription, payload) => void sent.push(String(payload)) },
       maxRequestBodyBytes: 1024,
@@ -246,7 +256,7 @@ describe('Web Push routes', () => {
     const store = PushStore.open(join(root, 'state.json'), () => ({ publicKey: 'AQID', privateKey: 'BAUG' }))
     store.upsert(subscription)
     let deliveries = 0
-    const routes = createPushRoutes({
+    const routes = routesFor({
       store,
       sender: {
         send: async () => {
@@ -271,7 +281,7 @@ describe('Web Push routes', () => {
   it('serves the notification artwork even when no session is presented', async () => {
     root = mkdtempSync(join(tmpdir(), 'dsh-web-push-icons-'))
     const store = PushStore.open(join(root, 'state.json'), () => ({ publicKey: 'AQID', privateKey: 'BAUG' }))
-    const routes = createPushRoutes({
+    const routes = routesFor({
       store,
       sender: { send: vi.fn(async () => {}) },
       maxRequestBodyBytes: 1024,
@@ -287,5 +297,62 @@ describe('Web Push routes', () => {
       expect((result.raw as Buffer).subarray(0, 8).equals(pngSignature), path).toBe(true)
       expect(result.headers['cache-control'], path).toBe('no-store')
     }
+  })
+
+  it('records a page that is in front of the user', async () => {
+    root = mkdtempSync(join(tmpdir(), 'dsh-web-push-presence-'))
+    const store = PushStore.open(join(root, 'state.json'), () => ({ publicKey: 'AQID', privateKey: 'BAUG' }))
+    const routes = routesFor({
+      store,
+      sender: { send: vi.fn(async () => {}) },
+      maxRequestBodyBytes: 1024,
+      requestRejection: authenticated,
+    })
+
+    const accepted = response()
+    await find(PRESENCE_PATH, routes).handler(request('POST', { id: 'page-1', active: true }), accepted.response)
+    expect(accepted.status).toBe(200)
+    expect(accepted.body).toEqual({ ok: true })
+    expect(presence.anyActive()).toBe(true)
+
+    for (const id of ['', 'x'.repeat(65), 'has space', 'slash/es', 42, null]) {
+      const rejected = response()
+      await find(PRESENCE_PATH, routes).handler(request('POST', { id, active: true }), rejected.response)
+      expect(rejected.status, String(id)).toBe(400)
+    }
+    const notBoolean = response()
+    await find(PRESENCE_PATH, routes).handler(request('POST', { id: 'page-1', active: 'yes' }), notBoolean.response)
+    expect(notBoolean.status).toBe(400)
+    // A malformed report is ignored, never a state change.
+    expect(presence.anyActive()).toBe(true)
+  })
+
+  it('serves presence only over an authenticated POST carrying JSON', async () => {
+    root = mkdtempSync(join(tmpdir(), 'dsh-web-push-presence-'))
+    const store = PushStore.open(join(root, 'state.json'), () => ({ publicKey: 'AQID', privateKey: 'BAUG' }))
+    const dependencies = {
+      store,
+      sender: { send: vi.fn(async () => {}) },
+      maxRequestBodyBytes: 1024,
+      requestRejection: authenticated,
+    }
+
+    const wrongMethod = response()
+    await find(PRESENCE_PATH, routesFor(dependencies)).handler(request('GET'), wrongMethod.response)
+    expect(wrongMethod.status).toBe(405)
+
+    const wrongType = response()
+    await find(PRESENCE_PATH, routesFor(dependencies)).handler(
+      request('POST', { id: 'page-1', active: true }, 'application/jsonp'),
+      wrongType.response,
+    )
+    expect(wrongType.status).toBe(415)
+
+    const unauthenticated = response()
+    const gated = createPushRoutes({ ...dependencies, presence, requestRejection: () => 401 })
+    await find(PRESENCE_PATH, gated).handler(request('POST', { id: 'page-1', active: true }), unauthenticated.response)
+    expect(unauthenticated.status).toBe(401)
+    expect(unauthenticated.body).toBe('unauthorized')
+    expect(presence.anyActive()).toBe(false)
   })
 })

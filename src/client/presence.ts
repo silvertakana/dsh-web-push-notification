@@ -1,0 +1,156 @@
+import { PRESENCE_PATH } from '../contract.ts'
+
+/**
+ * How often an active page re-reports itself. The server's TTL is three times
+ * this, so one lost report does not let a notification through.
+ */
+export const PRESENCE_HEARTBEAT_MS = 20_000
+
+/**
+ * A focused window on a machine nobody has touched is not attention. Past this
+ * much silence the page reports itself inactive, so a desktop left open on the
+ * far side of the room does not keep a phone quiet all evening.
+ */
+export const PRESENCE_IDLE_MS = 10 * 60_000
+
+const INPUT_EVENTS = ['keydown', 'pointerdown', 'touchstart', 'wheel'] as const
+
+/** The window and document surface the reporter touches, so a test can supply its own. */
+export interface PresenceView {
+  readonly document: {
+    readonly visibilityState: string
+    hasFocus(): boolean
+    addEventListener(type: string, listener: () => void): void
+    removeEventListener(type: string, listener: () => void): void
+  }
+  addEventListener(type: string, listener: () => void): void
+  removeEventListener(type: string, listener: () => void): void
+}
+
+export interface PresenceOptions {
+  readonly view?: PresenceView
+  readonly now?: () => number
+  readonly heartbeatMs?: number
+  readonly idleMs?: number
+}
+
+/**
+ * Report this page's focus, visibility and idleness until the returned disposer
+ * runs. The page is one of possibly several across the user's devices, and the
+ * server suppresses notifications while any of them is active.
+ */
+export function startPresenceReporting(options: PresenceOptions = {}): () => void {
+  // A client plugin can load in a context with no document; then there is no
+  // focus to report and nothing to suppress.
+  const detected = options.view ?? (typeof document === 'undefined' ? undefined : (window as unknown as PresenceView))
+  if (detected === undefined) return () => {}
+  const view: PresenceView = detected
+  const now = options.now ?? Date.now
+  const heartbeatMs = options.heartbeatMs ?? PRESENCE_HEARTBEAT_MS
+  const idleMs = options.idleMs ?? PRESENCE_IDLE_MS
+  const id = clientId()
+  let lastInputAt = now()
+  let active: boolean | undefined
+  let heartbeat: ReturnType<typeof setInterval> | undefined
+  let disposed = false
+
+  const post = (next: boolean, beacon = false): void => {
+    const body = JSON.stringify({ id, active: next })
+    // The unload path cannot await a fetch, and a beacon survives the teardown
+    // that would otherwise cancel one.
+    if (beacon) {
+      if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+        navigator.sendBeacon(PRESENCE_PATH, new Blob([body], { type: 'application/json' }))
+      }
+      return
+    }
+    // A report that never lands costs one redundant notification, never a lost
+    // one: the page simply stops muting until its next heartbeat.
+    void fetch(PRESENCE_PATH, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'content-type': 'application/json' },
+      body,
+    }).catch(() => {})
+  }
+
+  function stopHeartbeat(): void {
+    if (heartbeat === undefined) return
+    clearInterval(heartbeat)
+    heartbeat = undefined
+  }
+
+  function apply(next: boolean): void {
+    active = next
+    post(next)
+    if (!next) {
+      stopHeartbeat()
+      return
+    }
+    heartbeat ??= setInterval(beat, heartbeatMs)
+  }
+
+  function beat(): void {
+    if (disposed || active !== true) return
+    // The state can change without an event: input simply stops.
+    if (!isActive()) {
+      apply(false)
+      return
+    }
+    post(true)
+  }
+
+  function isActive(): boolean {
+    return view.document.visibilityState === 'visible' && view.document.hasFocus() && now() - lastInputAt < idleMs
+  }
+
+  function sync(): void {
+    if (disposed) return
+    const next = isActive()
+    if (next === active) return
+    apply(next)
+  }
+
+  function onInput(): void {
+    lastInputAt = now()
+    sync()
+  }
+
+  function onHide(): void {
+    if (disposed) return
+    stopHeartbeat()
+    active = false
+    post(false, true)
+  }
+
+  view.document.addEventListener('visibilitychange', sync)
+  view.addEventListener('focus', sync)
+  view.addEventListener('blur', sync)
+  view.addEventListener('pagehide', onHide)
+  // A page restored from the back/forward cache is alive again and must say so.
+  view.addEventListener('pageshow', sync)
+  for (const type of INPUT_EVENTS) view.addEventListener(type, onInput)
+  sync()
+
+  return () => {
+    if (disposed) return
+    disposed = true
+    stopHeartbeat()
+    view.document.removeEventListener('visibilitychange', sync)
+    view.removeEventListener('focus', sync)
+    view.removeEventListener('blur', sync)
+    view.removeEventListener('pagehide', onHide)
+    view.removeEventListener('pageshow', sync)
+    for (const type of INPUT_EVENTS) view.removeEventListener(type, onInput)
+    if (active === true) post(false, true)
+  }
+}
+
+/**
+ * Opaque to the server, unique per page load: two tabs are two reporters, and a
+ * reloaded tab retires its predecessor by never refreshing it again.
+ */
+function clientId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID()
+  return `${String(Date.now())}-${Math.random().toString(36).slice(2)}`
+}

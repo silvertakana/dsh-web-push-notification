@@ -76,6 +76,23 @@ key, so the Push service only ever sees ciphertext even in **full** mode.
 Tapping a notification focuses an existing Harness window and opens the session
 the notification came from, or opens a new window at that session.
 
+While you are already looking at Harness, nothing is pushed. Every open Harness
+page reports whether it is focused, visible, and recently used to
+`/__dsh/web-push/presence`, and while any page on any device is active, a
+notification would only repeat what is on screen. Suppression is deliberately
+global rather than per device: a focused window on the desktop is as good a
+reason not to ring the phone as the phone's own screen would be.
+
+Two things stop a forgotten page from muting you forever:
+
+- A window nobody has touched for ten minutes stops counting as attention, so a
+  desktop left open on the far side of the room lets the phone ring again.
+- The server forgets any page that has not reported for a minute, so a tab that
+  dies without a chance to say goodbye stops suppressing on its own.
+
+**Send test** bypasses this deliberately: a test is a request for a
+notification, not a report that something happened.
+
 The notification title is the session's own title from the Harness log, so a
 phone holding several sessions says which one each row belongs to. Until a
 session has a title, the title falls back to the event kind.
@@ -124,6 +141,9 @@ whatever root-scope worker owns the page.
   no longer substitutes its grey letter placeholder disc.
 - The notification tag includes the session id, so two sessions reaching the
   same turn and outcome no longer collapse into one row on the phone.
+- Notifications are suppressed while a Harness page is in front of you, on any
+  device: each page reports focus, visibility, and idleness, and an idle or dead
+  page stops counting. The **Send test** button still always sends.
 
 ## License
 

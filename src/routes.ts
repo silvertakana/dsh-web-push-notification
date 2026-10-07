@@ -2,15 +2,16 @@ import { readFileSync } from 'node:fs'
 import type { ServerResponse, IncomingMessage } from 'node:http'
 import type { HostConnectionHandle } from '@deepseek-ai/dsh-client-connection'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
-import type { WebPushConfig } from './contract.ts'
+import { PRESENCE_PATH, WEB_PUSH_ROUTE_PREFIX, type WebPushConfig } from './contract.ts'
 import { deliver } from './delivery.ts'
 import { HttpError, readJson, sendJson, sendText } from './http.ts'
+import type { PresenceRegistry } from './presence.ts'
 import type { PushSender } from './sender.ts'
 import { SERVICE_WORKER_SOURCE } from './service-worker.ts'
 import type { PushStore } from './store.ts'
-import { validateEndpoint, validateSubscription, validateTestMessage } from './validation.ts'
+import { validateEndpoint, validatePresence, validateSubscription, validateTestMessage } from './validation.ts'
 
-export const ROUTE_PREFIX = '/__dsh/web-push'
+export const ROUTE_PREFIX = WEB_PUSH_ROUTE_PREFIX
 export const CONFIG_PATH = `${ROUTE_PREFIX}/config`
 export const SERVICE_WORKER_PATH = `${ROUTE_PREFIX}/sw.js`
 /** A disjoint scope prevents this worker from controlling application pages. */
@@ -26,6 +27,7 @@ const TEST_PATH = `${ROUTE_PREFIX}/test`
 export interface PushRouteOptions {
   readonly store: PushStore
   readonly sender: PushSender
+  readonly presence: PresenceRegistry
   readonly maxRequestBodyBytes: number
   readonly requestRejection: HostConnectionHandle['requestRejection']
   readonly onDeliveryFailure?: (status: number | undefined) => void
@@ -106,6 +108,15 @@ export function createPushRoutes(options: PushRouteOptions): WebRoute[] {
           validateEndpoint(await readJson(req, options.maxRequestBodyBytes)),
         )
         sendJson(res, 200, { removed: options.store.remove(endpoint) })
+      }),
+    },
+    {
+      kind: 'exact',
+      path: PRESENCE_PATH,
+      handler: method('POST', async (req, res) => {
+        const report = await clientInput(async () => validatePresence(await readJson(req, options.maxRequestBodyBytes)))
+        options.presence.report(report.id, report.active)
+        sendJson(res, 200, { ok: true })
       }),
     },
     {
