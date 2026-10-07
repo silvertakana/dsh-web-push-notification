@@ -12,6 +12,7 @@ import {
   reconcileSubscription,
   refreshServiceWorker,
   registerSubscription,
+  saveSuppression,
   sendTest,
   subscriptionUsesApplicationServerKey,
   unregisterSubscription,
@@ -20,9 +21,11 @@ import {
 import { readPreferences, writePreferences } from './preferences.ts'
 import {
   DEFAULT_NOTIFICATION_PREFERENCES,
+  DEFAULT_SUPPRESSION_SETTINGS,
   type NotificationBodyMode,
   type NotificationKind,
   type NotificationPreferences,
+  type SuppressionSettings,
 } from '../types.ts'
 
 type Status = 'loading' | 'unsupported' | 'insecure-context' | 'default' | 'denied' | 'granted' | 'subscribed'
@@ -37,6 +40,9 @@ const EVENT_OPTIONS: readonly {
   { key: 'approval', label: 'Approval required', description: 'Notify when an action needs your approval.' },
   { key: 'question', label: 'Response required', description: 'Notify when the agent needs an answer.' },
 ]
+
+/** Whole minutes, from "stop asking so quickly" to "leave me alone for a while". */
+const IDLE_CHOICES = [1, 2, 5, 10, 15, 30] as const
 
 const sectionStyle: CSSProperties = {
   display: 'flex',
@@ -139,6 +145,9 @@ export function WebPushSettingsSection(_props: PropsRuntime<'settings.section'>)
   const [preferences, setPreferences] = useState<NotificationPreferences>(() => ({
     ...DEFAULT_NOTIFICATION_PREFERENCES,
   }))
+  // Undefined until the config arrives: the controls stay disabled rather than
+  // showing defaults that are not what the server holds.
+  const [suppression, setSuppression] = useState<SuppressionSettings>()
   const [testTitle, setTestTitle] = useState('')
   const [testBody, setTestBody] = useState('')
 
@@ -150,6 +159,7 @@ export function WebPushSettingsSection(_props: PropsRuntime<'settings.section'>)
     }
     try {
       const config = await loadConfig()
+      setSuppression(config.suppression)
       await refreshServiceWorker(config)
       const subscriptionState = await reconcileSubscription(config, currentPreferences)
       if (subscriptionState === 'mismatched') {
@@ -278,9 +288,31 @@ export function WebPushSettingsSection(_props: PropsRuntime<'settings.section'>)
     }
   }
 
+  /**
+   * These two are account settings, not per-device ones, so they are stored by
+   * the server and saved whether or not this browser holds a subscription. The
+   * server echoes what it kept, which is what the panel then shows.
+   */
+  const updateSuppression = async (next: SuppressionSettings): Promise<void> => {
+    const previous = suppression
+    setSuppression(next)
+    setBusy(true)
+    setMessage(undefined)
+    try {
+      setSuppression(await saveSuppression(next))
+      setMessage('Notification timing saved.')
+    } catch (error) {
+      setSuppression(previous)
+      setMessage(error instanceof Error ? error.message : String(error))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const enabledDisabled =
     busy || status === 'loading' || status === 'unsupported' || status === 'insecure-context' || status === 'denied'
   const settingsDisabled = busy || status !== 'subscribed'
+  const timingDisabled = busy || suppression === undefined
   const statusColor = statusColorOf(status)
 
   return (
@@ -371,6 +403,64 @@ export function WebPushSettingsSection(_props: PropsRuntime<'settings.section'>)
           />
         </label>
       ))}
+
+      <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--dsw-alias-border-l2)' }}>
+        <div style={{ ...descriptionStyle, fontWeight: 600 }}>While you are using Harness</div>
+        <label style={rowStyle}>
+          <span style={rowTextStyle}>
+            <span style={titleStyle}>Quiet while a Harness page is in front of me</span>
+            <span style={descriptionStyle}>
+              A page you are looking at, on any device, keeps the others quiet. Turn this off to still be notified while
+              you are reading.
+            </span>
+          </span>
+          <input
+            type="checkbox"
+            checked={suppression?.suppressWhileActive ?? DEFAULT_SUPPRESSION_SETTINGS.suppressWhileActive}
+            disabled={timingDisabled}
+            style={checkboxStyle}
+            onChange={(event) => {
+              void updateSuppression({
+                suppressWhileActive: event.currentTarget.checked,
+                idleMinutes: suppression?.idleMinutes ?? DEFAULT_SUPPRESSION_SETTINGS.idleMinutes,
+              })
+            }}
+          />
+        </label>
+        <div style={{ ...rowStyle, borderBottom: 0 }}>
+          <div style={rowTextStyle}>
+            <div style={titleStyle}>Away after</div>
+            <div style={descriptionStyle}>
+              How long an untouched page still counts as you being there. Typing, clicking and moving the cursor all
+              count as attention.
+            </div>
+          </div>
+          <div style={selectorFrameStyle}>
+            <select
+              aria-label="Away after"
+              value={suppression?.idleMinutes ?? DEFAULT_SUPPRESSION_SETTINGS.idleMinutes}
+              disabled={timingDisabled || suppression?.suppressWhileActive === false}
+              style={selectorStyle}
+              onChange={(event) => {
+                void updateSuppression({
+                  suppressWhileActive:
+                    suppression?.suppressWhileActive ?? DEFAULT_SUPPRESSION_SETTINGS.suppressWhileActive,
+                  idleMinutes: Number(event.currentTarget.value),
+                })
+              }}
+            >
+              {IDLE_CHOICES.map((minutes) => (
+                <option key={minutes} value={minutes}>
+                  {minutes === 1 ? '1 minute' : `${String(minutes)} minutes`}
+                </option>
+              ))}
+            </select>
+            <span style={selectorIconStyle}>
+              <IconChevronDownOutlineRegular />
+            </span>
+          </div>
+        </div>
+      </div>
 
       <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--dsw-alias-border-l2)' }}>
         <div style={{ ...descriptionStyle, fontWeight: 600 }}>Debug</div>

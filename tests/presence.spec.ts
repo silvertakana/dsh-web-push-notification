@@ -56,7 +56,10 @@ describe('presence registry', () => {
 
 describe('page presence reporter', () => {
   function setup(initial: { visible?: boolean; focused?: boolean } = {}, options: PresenceOptionsForTest = {}) {
-    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response('{"ok":true}', { status: 200 }))
+    const fetchMock = vi.fn(
+      async (_url: string, _init?: RequestInit) =>
+        new Response(JSON.stringify(options.policy ?? { ok: true }), { status: 200 }),
+    )
     const beacon = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
     vi.stubGlobal('navigator', { sendBeacon: beacon })
@@ -135,6 +138,45 @@ describe('page presence reporter', () => {
     harness.stop()
   })
 
+  it('adopts the idle window the server reports, so a settings change needs no reload', async () => {
+    const harness = setup(
+      { visible: true, focused: true },
+      {
+        idleMs: 1000,
+        heartbeatMs: 100,
+        policy: { ok: true, suppression: { suppressWhileActive: true, idleMinutes: 1 } },
+      },
+    )
+    await settle()
+    // The server's minute outranks the one-second window this page booted with.
+    vi.advanceTimersByTime(5000)
+    expect(harness.posted().every((body) => body.active)).toBe(true)
+    harness.stop()
+  })
+
+  it('ignores an idle window it cannot honour instead of guessing', async () => {
+    const harness = setup(
+      { visible: true, focused: true },
+      {
+        idleMs: 1000,
+        heartbeatMs: 100,
+        policy: { ok: true, suppression: { suppressWhileActive: true, idleMinutes: 0 } },
+      },
+    )
+    await settle()
+    vi.advanceTimersByTime(1100)
+    expect(harness.posted().at(-1)?.active).toBe(false)
+    harness.stop()
+  })
+
+  /** A policy answer arrives on microtasks, which fake timers never run. */
+  async function settle(): Promise<void> {
+    for (let tick = 0; tick < 5; tick++) {
+      await Promise.resolve()
+      await vi.advanceTimersByTimeAsync(0)
+    }
+  }
+
   it('releases the mute on dispose and stops listening', async () => {
     const harness = setup({ visible: true, focused: true })
     harness.stop()
@@ -181,6 +223,8 @@ describe('presence defaults', () => {
 interface PresenceOptionsForTest {
   readonly idleMs?: number
   readonly heartbeatMs?: number
+  /** What the stubbed server answers a report with. */
+  readonly policy?: unknown
 }
 
 function fakeView(initial: { visible?: boolean; focused?: boolean } = {}) {

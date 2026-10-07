@@ -2,14 +2,26 @@ import { readFileSync } from 'node:fs'
 import type { ServerResponse, IncomingMessage } from 'node:http'
 import type { HostConnectionHandle } from '@deepseek-ai/dsh-client-connection'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
-import { PRESENCE_PATH, WEB_PUSH_ROUTE_PREFIX, type WebPushConfig } from './contract.ts'
+import {
+  PRESENCE_PATH,
+  SETTINGS_PATH,
+  WEB_PUSH_ROUTE_PREFIX,
+  type PresenceReportResponse,
+  type WebPushConfig,
+} from './contract.ts'
 import { deliver } from './delivery.ts'
 import { HttpError, readJson, sendJson, sendText } from './http.ts'
 import type { PresenceRegistry } from './presence.ts'
 import type { PushSender } from './sender.ts'
 import { SERVICE_WORKER_SOURCE } from './service-worker.ts'
 import type { PushStore } from './store.ts'
-import { validateEndpoint, validatePresence, validateSubscription, validateTestMessage } from './validation.ts'
+import {
+  validateEndpoint,
+  validatePresence,
+  validateSettings,
+  validateSubscription,
+  validateTestMessage,
+} from './validation.ts'
 
 export const ROUTE_PREFIX = WEB_PUSH_ROUTE_PREFIX
 export const CONFIG_PATH = `${ROUTE_PREFIX}/config`
@@ -64,6 +76,7 @@ export function createPushRoutes(options: PushRouteOptions): WebRoute[] {
           publicKey: options.store.publicKey,
           serviceWorkerUrl: SERVICE_WORKER_PATH,
           serviceWorkerScope: SERVICE_WORKER_SCOPE,
+          suppression: options.store.settings,
         }
         sendJson(res, 200, config)
       }),
@@ -116,7 +129,19 @@ export function createPushRoutes(options: PushRouteOptions): WebRoute[] {
       handler: method('POST', async (req, res) => {
         const report = await clientInput(async () => validatePresence(await readJson(req, options.maxRequestBodyBytes)))
         options.presence.report(report.id, report.active)
-        sendJson(res, 200, { ok: true })
+        const answer: PresenceReportResponse = { ok: true, suppression: options.store.settings }
+        sendJson(res, 200, answer)
+      }),
+    },
+    {
+      kind: 'exact',
+      path: SETTINGS_PATH,
+      handler: method('POST', async (req, res) => {
+        const settings = await clientInput(async () =>
+          validateSettings(await readJson(req, options.maxRequestBodyBytes)),
+        )
+        options.store.setSettings(settings)
+        sendJson(res, 200, settings)
       }),
     },
     {

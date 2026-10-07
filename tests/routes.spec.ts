@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { PRESENCE_PATH } from '../src/contract.ts'
+import { PRESENCE_PATH, SETTINGS_PATH } from '../src/contract.ts'
 import { PresenceRegistry } from '../src/presence.ts'
 import {
   createPushRoutes,
@@ -114,6 +114,7 @@ describe('Web Push routes', () => {
       publicKey: 'AQID',
       serviceWorkerUrl: SERVICE_WORKER_PATH,
       serviceWorkerScope: '/__dsh/web-push/',
+      suppression: { suppressWhileActive: true, idleMinutes: 10 },
     })
 
     const worker = response()
@@ -312,7 +313,7 @@ describe('Web Push routes', () => {
     const accepted = response()
     await find(PRESENCE_PATH, routes).handler(request('POST', { id: 'page-1', active: true }), accepted.response)
     expect(accepted.status).toBe(200)
-    expect(accepted.body).toEqual({ ok: true })
+    expect(accepted.body).toEqual({ ok: true, suppression: { suppressWhileActive: true, idleMinutes: 10 } })
     expect(presence.anyActive()).toBe(true)
 
     for (const id of ['', 'x'.repeat(65), 'has space', 'slash/es', 42, null]) {
@@ -354,5 +355,84 @@ describe('Web Push routes', () => {
     expect(unauthenticated.status).toBe(401)
     expect(unauthenticated.body).toBe('unauthorized')
     expect(presence.anyActive()).toBe(false)
+  })
+
+  it('stores the suppression policy and hands it back to every open page', async () => {
+    root = mkdtempSync(join(tmpdir(), 'dsh-web-push-settings-'))
+    const store = PushStore.open(join(root, 'state.json'), () => ({ publicKey: 'AQID', privateKey: 'BAUG' }))
+    const routes = routesFor({
+      store,
+      sender: { send: vi.fn(async () => {}) },
+      maxRequestBodyBytes: 1024,
+      requestRejection: authenticated,
+    })
+
+    const saved = response()
+    await find(SETTINGS_PATH, routes).handler(
+      request('POST', { suppressWhileActive: false, idleMinutes: 2 }),
+      saved.response,
+    )
+    expect(saved.status).toBe(200)
+    expect(saved.body).toEqual({ suppressWhileActive: false, idleMinutes: 2 })
+    expect(store.settings).toEqual({ suppressWhileActive: false, idleMinutes: 2 })
+
+    // The panel is not the only reader: a page already open learns the new
+    // window from the answer to its next report, without a reload.
+    const report = response()
+    await find(PRESENCE_PATH, routes).handler(request('POST', { id: 'page-1', active: true }), report.response)
+    expect(report.body).toEqual({ ok: true, suppression: { suppressWhileActive: false, idleMinutes: 2 } })
+  })
+
+  it('refuses a suppression policy it cannot honour', async () => {
+    root = mkdtempSync(join(tmpdir(), 'dsh-web-push-settings-'))
+    const store = PushStore.open(join(root, 'state.json'), () => ({ publicKey: 'AQID', privateKey: 'BAUG' }))
+    const route = find(
+      SETTINGS_PATH,
+      routesFor({
+        store,
+        sender: { send: vi.fn(async () => {}) },
+        maxRequestBodyBytes: 1024,
+        requestRejection: authenticated,
+      }),
+    )
+
+    const bodies: unknown[] = [
+      {},
+      { idleMinutes: 5 },
+      { suppressWhileActive: 'yes', idleMinutes: 5 },
+      { suppressWhileActive: true, idleMinutes: 0 },
+      { suppressWhileActive: true, idleMinutes: 2.5 },
+      { suppressWhileActive: true, idleMinutes: 61 },
+    ]
+    for (const body of bodies) {
+      const rejected = response()
+      await route.handler(request('POST', body), rejected.response)
+      expect(rejected.status, JSON.stringify(body)).toBe(400)
+    }
+    // Nothing was applied, so the panel and the pages keep the previous answer.
+    expect(store.settings).toEqual({ suppressWhileActive: true, idleMinutes: 10 })
+  })
+
+  it('serves settings only over an authenticated POST carrying JSON', async () => {
+    root = mkdtempSync(join(tmpdir(), 'dsh-web-push-settings-'))
+    const store = PushStore.open(join(root, 'state.json'), () => ({ publicKey: 'AQID', privateKey: 'BAUG' }))
+    const dependencies = {
+      store,
+      sender: { send: vi.fn(async () => {}) },
+      maxRequestBodyBytes: 1024,
+      requestRejection: authenticated,
+    }
+
+    const wrongMethod = response()
+    await find(SETTINGS_PATH, routesFor(dependencies)).handler(request('GET'), wrongMethod.response)
+    expect(wrongMethod.status).toBe(405)
+
+    const unauthenticated = response()
+    await find(SETTINGS_PATH, createPushRoutes({ ...dependencies, presence, requestRejection: () => 401 })).handler(
+      request('POST', { suppressWhileActive: false, idleMinutes: 5 }),
+      unauthenticated.response,
+    )
+    expect(unauthenticated.status).toBe(401)
+    expect(store.settings.suppressWhileActive).toBe(true)
   })
 })

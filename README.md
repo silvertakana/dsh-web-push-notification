@@ -85,8 +85,9 @@ reason not to ring the phone as the phone's own screen would be.
 
 Two things stop a forgotten page from muting you forever:
 
-- A window nobody has touched for ten minutes stops counting as attention, so a
-  desktop left open on the far side of the room lets the phone ring again.
+- A window nobody has touched for the configured time - ten minutes by default -
+  stops counting as attention, so a desktop left open on the far side of the
+  room lets the phone ring again.
 - The server forgets any page that has not reported for a minute, so a tab that
   dies without a chance to say goodbye stops suppressing on its own.
 
@@ -100,6 +101,14 @@ Discord exposes the same wait as its **Push Notification Inactive Timeout**. So
 cursor movement counts as attention and not just clicks: reading a long answer
 under a moving mouse keeps the page active, and going idle is what says you
 walked away.
+
+Both halves are yours to change in **Settings -> Notifications -> While you are
+using Harness**. The quiet period can be dropped entirely, so a notification
+still arrives while you are reading, and the away threshold can be set from one
+to thirty minutes. They are account settings rather than per-device ones, since
+the question they answer is whether you are looking at Harness anywhere; the
+phone can therefore change what the desktop does. An open page adopts a new
+threshold on its next report, so no reload is needed.
 
 The notification title is the session's own title from the Harness log, so a
 phone holding several sessions says which one each row belongs to. Until a
@@ -149,6 +158,9 @@ whatever root-scope worker owns the page.
   no longer substitutes its grey letter placeholder disc.
 - The notification tag includes the session id, so two sessions reaching the
   same turn and outcome no longer collapse into one row on the phone.
+- The quiet period and the away threshold are configurable in **Settings ->
+  Notifications -> While you are using Harness**, and are stored by the server so
+  every device agrees.
 - Notifications are suppressed while a Harness page is in front of you, on any
   device: each page reports focus, visibility, and idleness, and an idle or dead
   page stops counting. Pointer movement is attention, not just clicks. The

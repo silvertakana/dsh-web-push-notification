@@ -1,4 +1,5 @@
 import { PRESENCE_PATH } from '../contract.ts'
+import { MAX_IDLE_MINUTES, MIN_IDLE_MINUTES } from '../types.ts'
 
 /**
  * How often an active page re-reports itself. The server's TTL is three times
@@ -58,12 +59,44 @@ export function startPresenceReporting(options: PresenceOptions = {}): () => voi
   const view: PresenceView = detected
   const now = options.now ?? Date.now
   const heartbeatMs = options.heartbeatMs ?? PRESENCE_HEARTBEAT_MS
-  const idleMs = options.idleMs ?? PRESENCE_IDLE_MS
+  // The default until the server answers; from then on the user's setting.
+  let idleMs = options.idleMs ?? PRESENCE_IDLE_MS
   const id = clientId()
   let lastInputAt = now()
   let active: boolean | undefined
   let heartbeat: ReturnType<typeof setInterval> | undefined
   let disposed = false
+
+  /**
+   * Every report is answered with the policy it was judged against, so a change
+   * made in Settings reaches a page that is already open: the next heartbeat
+   * adopts the new idle window and no reload is needed. A value this page cannot
+   * use is ignored rather than guessed at, leaving the window it already had.
+   */
+  const applyPolicy = async (response: Response): Promise<void> => {
+    if (!response.ok) return
+    let body: unknown
+    try {
+      body = await response.json()
+    } catch {
+      return
+    }
+    const suppression = isRecord(body) ? body.suppression : undefined
+    const minutes = isRecord(suppression) ? suppression.idleMinutes : undefined
+    if (
+      typeof minutes !== 'number' ||
+      !Number.isInteger(minutes) ||
+      minutes < MIN_IDLE_MINUTES ||
+      minutes > MAX_IDLE_MINUTES
+    ) {
+      return
+    }
+    const next = minutes * 60_000
+    if (next === idleMs) return
+    idleMs = next
+    // A shorter window can put this page past its own limit immediately.
+    sync()
+  }
 
   const post = (next: boolean, beacon = false): void => {
     const body = JSON.stringify({ id, active: next })
@@ -82,7 +115,9 @@ export function startPresenceReporting(options: PresenceOptions = {}): () => voi
       credentials: 'same-origin',
       headers: { 'content-type': 'application/json' },
       body,
-    }).catch(() => {})
+    })
+      .then(applyPolicy)
+      .catch(() => {})
   }
 
   function stopHeartbeat(): void {
@@ -164,4 +199,8 @@ export function startPresenceReporting(options: PresenceOptions = {}): () => voi
 function clientId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID()
   return `${String(Date.now())}-${Math.random().toString(36).slice(2)}`
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

@@ -1,5 +1,5 @@
 import type { PushSubscriptionJson, WebPushConfig } from '../contract.ts'
-import type { NotificationPreferences } from '../types.ts'
+import type { NotificationPreferences, SuppressionSettings } from '../types.ts'
 
 const BASE = '/__dsh/web-push'
 
@@ -34,6 +34,15 @@ export function registerSubscription(
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(json),
   }).then(() => undefined)
+}
+
+/** Store the account-wide suppression policy and return what the server kept. */
+export function saveSuppression(settings: SuppressionSettings): Promise<SuppressionSettings> {
+  return request(`${BASE}/settings`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(settings),
+  })
 }
 
 export function unregisterSubscription(endpoint: string): Promise<void> {

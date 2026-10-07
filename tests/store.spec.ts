@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -47,5 +47,23 @@ describe('PushStore', () => {
     expect(store.remove(subscription.endpoint)).toBe(true)
     expect(store.remove(subscription.endpoint)).toBe(false)
     expect(JSON.parse(readFileSync(path, 'utf8')).subscriptions).toEqual([])
+  })
+
+  it('persists the suppression policy and opens a file written before it existed', () => {
+    root = mkdtempSync(join(tmpdir(), 'dsh-web-push-store-'))
+    const path = join(root, 'state.json')
+    const store = PushStore.open(path, () => keys)
+    expect(store.settings).toEqual({ suppressWhileActive: true, idleMinutes: 10 })
+    store.setSettings({ suppressWhileActive: false, idleMinutes: 2 })
+    expect(PushStore.open(path, () => keys).settings).toEqual({ suppressWhileActive: false, idleMinutes: 2 })
+
+    // Every deployment that predates the policy has a state file without it.
+    const persisted = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>
+    const legacyPath = join(root, 'legacy.json')
+    writeFileSync(
+      legacyPath,
+      JSON.stringify({ version: persisted.version, vapid: persisted.vapid, subscriptions: persisted.subscriptions }),
+    )
+    expect(PushStore.open(legacyPath, () => keys).settings).toEqual({ suppressWhileActive: true, idleMinutes: 10 })
   })
 })

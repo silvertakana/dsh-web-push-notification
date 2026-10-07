@@ -10,7 +10,13 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { dirname, join } from 'node:path'
-import type { PushSubscriptionRecord, PushStoreState, VapidKeys } from './types.ts'
+import {
+  DEFAULT_SUPPRESSION_SETTINGS,
+  type PushSubscriptionRecord,
+  type PushStoreState,
+  type SuppressionSettings,
+  type VapidKeys,
+} from './types.ts'
 import { validateStoreState } from './validation.ts'
 
 /** Generate a new VAPID key pair. Kept as a parameter so storage tests are deterministic. */
@@ -19,12 +25,16 @@ export type VapidKeyFactory = () => VapidKeys
 export class PushStore {
   private readonly subscriptionsByEndpoint: Map<string, PushSubscriptionRecord>
 
+  private suppression: SuppressionSettings
+
   private constructor(
     private readonly path: string,
     private readonly vapid: VapidKeys,
     subscriptions: readonly PushSubscriptionRecord[],
+    suppression: SuppressionSettings,
   ) {
     this.subscriptionsByEndpoint = new Map(subscriptions.map((subscription) => [subscription.endpoint, subscription]))
+    this.suppression = { ...suppression }
   }
 
   static open(path: string, generateVapidKeys: VapidKeyFactory): PushStore {
@@ -32,7 +42,7 @@ export class PushStore {
     mkdirSync(parent, { recursive: true, mode: 0o700 })
     if (!existsSync(path)) {
       const vapid = generateVapidKeys()
-      const store = new PushStore(path, vapid, [])
+      const store = new PushStore(path, vapid, [], { ...DEFAULT_SUPPRESSION_SETTINGS })
       store.persist()
       return store
     }
@@ -40,7 +50,7 @@ export class PushStore {
     const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'))
     const state = validateStoreState(parsed)
     chmodSync(path, 0o600)
-    return new PushStore(path, state.vapid, state.subscriptions)
+    return new PushStore(path, state.vapid, state.subscriptions, state.settings)
   }
 
   get publicKey(): string {
@@ -49,6 +59,26 @@ export class PushStore {
 
   get privateKey(): string {
     return this.vapid.privateKey
+  }
+
+  get settings(): SuppressionSettings {
+    return { ...this.suppression }
+  }
+
+  /**
+   * Replace the account-wide suppression settings. The write happens first: a
+   * settings change that cannot be persisted must not look applied, or the
+   * panel would show a quiet-forever choice that the next boot forgets.
+   */
+  setSettings(next: SuppressionSettings): void {
+    const previous = this.suppression
+    this.suppression = { ...next }
+    try {
+      this.persist()
+    } catch (error) {
+      this.suppression = previous
+      throw error
+    }
   }
 
   list(): PushSubscriptionRecord[] {
@@ -86,6 +116,7 @@ export class PushStore {
       version: 1,
       vapid: this.vapid,
       subscriptions: this.list(),
+      settings: this.settings,
     }
     const parent = dirname(this.path)
     const tempDir = mkdtempSync(join(parent, '.dsh-web-push-'))

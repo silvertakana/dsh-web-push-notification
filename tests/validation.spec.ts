@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_TEST_MESSAGE,
   validateEndpoint,
+  validateSettings,
   validateStoreState,
   validateSubscription,
   validateTestMessage,
@@ -80,6 +81,63 @@ describe('subscription validation', () => {
     for (const endpoint of accepted) {
       expect(validateEndpoint({ endpoint }), endpoint).toBe(endpoint)
     }
+  })
+})
+
+describe('suppression settings', () => {
+  const vapid = { publicKey: 'AQID', privateKey: 'BAUG' }
+
+  it('accepts both fields, and reads a persisted policy back', () => {
+    expect(validateSettings({ suppressWhileActive: false, idleMinutes: 1 })).toEqual({
+      suppressWhileActive: false,
+      idleMinutes: 1,
+    })
+    expect(
+      validateStoreState({
+        version: 1,
+        vapid,
+        subscriptions: [],
+        settings: { suppressWhileActive: true, idleMinutes: 30 },
+      }),
+    ).toEqual({
+      version: 1,
+      vapid,
+      subscriptions: [],
+      settings: { suppressWhileActive: true, idleMinutes: 30 },
+    })
+  })
+
+  it('defaults the policy for a state file that predates it', () => {
+    expect(validateStoreState({ version: 1, vapid, subscriptions: [] })).toEqual({
+      version: 1,
+      vapid,
+      subscriptions: [],
+      settings: { suppressWhileActive: true, idleMinutes: 10 },
+    })
+  })
+
+  it('rejects a policy it cannot honour, and a persisted one it cannot read', () => {
+    const rejected: unknown[] = [
+      'quiet',
+      {},
+      { suppressWhileActive: true },
+      { suppressWhileActive: 1, idleMinutes: 5 },
+      { suppressWhileActive: true, idleMinutes: '5' },
+      { suppressWhileActive: true, idleMinutes: 0 },
+      { suppressWhileActive: true, idleMinutes: 2.5 },
+      { suppressWhileActive: true, idleMinutes: 61 },
+    ]
+    for (const value of rejected) {
+      expect(() => validateSettings(value), JSON.stringify(value)).toThrow(/suppression/)
+    }
+    expect(() =>
+      validateStoreState({
+        version: 1,
+        vapid,
+        subscriptions: [],
+        settings: { suppressWhileActive: true, idleMinutes: 0 },
+      }),
+    ).toThrow(/idleMinutes/)
   })
 })
 

@@ -1,10 +1,14 @@
 import type { PresenceReport } from './presence.ts'
 import {
   DEFAULT_NOTIFICATION_PREFERENCES,
+  DEFAULT_SUPPRESSION_SETTINGS,
+  MAX_IDLE_MINUTES,
+  MIN_IDLE_MINUTES,
   type NotificationBodyMode,
   type NotificationPreferences,
   type PushSubscriptionRecord,
   type PushStoreState,
+  type SuppressionSettings,
   type VapidKeys,
 } from './types.ts'
 
@@ -83,6 +87,30 @@ export function validatePresence(value: unknown): PresenceReport {
   return { id, active: value.active }
 }
 
+/**
+ * Both fields are required rather than defaulted: a caller that sends only one
+ * of them is asking to change one thing, and treating the omission as "reset
+ * the other" would silently undo a setting the user just chose.
+ */
+export function validateSettings(value: unknown): SuppressionSettings {
+  if (!isRecord(value)) throw new Error('suppression settings must be an object')
+  if (typeof value.suppressWhileActive !== 'boolean') {
+    throw new Error('suppression settings need a boolean suppressWhileActive')
+  }
+  const idleMinutes = value.idleMinutes
+  if (
+    typeof idleMinutes !== 'number' ||
+    !Number.isInteger(idleMinutes) ||
+    idleMinutes < MIN_IDLE_MINUTES ||
+    idleMinutes > MAX_IDLE_MINUTES
+  ) {
+    throw new Error(
+      `suppression idleMinutes must be a whole number of minutes from ${String(MIN_IDLE_MINUTES)} to ${String(MAX_IDLE_MINUTES)}`,
+    )
+  }
+  return { suppressWhileActive: value.suppressWhileActive, idleMinutes }
+}
+
 export const DEFAULT_TEST_MESSAGE = {
   title: 'DeepSeek Harness',
   body: 'Web Push is working.',
@@ -136,7 +164,9 @@ export function validateStoreState(value: unknown): PushStoreState {
     if (endpoints.has(subscription.endpoint)) throw new Error('push storage contains duplicate endpoints')
     endpoints.add(subscription.endpoint)
   }
-  return { version: 1, vapid, subscriptions }
+  // A file written before suppression settings existed still opens, on defaults.
+  const settings = value.settings === undefined ? { ...DEFAULT_SUPPRESSION_SETTINGS } : validateSettings(value.settings)
+  return { version: 1, vapid, subscriptions, settings }
 }
 
 export function validBase64Url(value: unknown, label: string): string {

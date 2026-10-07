@@ -1,9 +1,10 @@
-import type { NotificationPreferences } from './types.ts'
+import type { NotificationPreferences, SuppressionSettings } from './types.ts'
 
 export interface WebPushConfig {
   readonly publicKey: string
   readonly serviceWorkerUrl: string
   readonly serviceWorkerScope: string
+  readonly suppression: SuppressionSettings
 }
 
 export interface PushSubscriptionJson {
@@ -25,3 +26,16 @@ export const WEB_PUSH_ROUTE_PREFIX = '/__dsh/web-push'
 
 /** Where a live page reports whether it is focused, visible and recently used. */
 export const PRESENCE_PATH = `${WEB_PUSH_ROUTE_PREFIX}/presence`
+
+/** Where the settings panel reads and writes the account-wide suppression policy. */
+export const SETTINGS_PATH = `${WEB_PUSH_ROUTE_PREFIX}/settings`
+
+/**
+ * A presence report answers with the policy it was judged against, so an open
+ * page adopts a changed idle window on its next heartbeat instead of needing a
+ * reload.
+ */
+export interface PresenceReportResponse {
+  readonly ok: true
+  readonly suppression: SuppressionSettings
+}

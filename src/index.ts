@@ -87,9 +87,12 @@ export function apply(ctx: Context, config?: Config): void {
   ctx.effect(() => {
     const dispose = ctx.on('session/event', (session: Session, event: SessionEvent) => {
       // A page already in front of the user shows this change, so ringing every
-      // other device about it is noise. The settings test button deliberately
-      // bypasses this: a test is a request for a notification, not a report.
-      if (presence.anyActive()) return
+      // other device about it is noise. Both halves are the user's choice in
+      // Settings: they can drop the quiet period, or shorten how long an
+      // untouched page keeps claiming their attention. The settings test button
+      // deliberately bypasses this: a test is a request for a notification, not
+      // a report.
+      if (store.settings.suppressWhileActive && presence.anyActive()) return
       const events = session.snapshotEvents()
       const sessionTitle = sessionTitleOf(events)
       const summary = notificationForEvent(String(session.id), event, { bodyMode: 'summary', events, sessionTitle })

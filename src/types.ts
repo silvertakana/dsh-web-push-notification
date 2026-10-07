@@ -18,6 +18,33 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   bodyMode: 'full',
 }
 
+/**
+ * Whether a focused page keeps every other device quiet, and how long a page
+ * that nobody is touching still counts as attention.
+ *
+ * Both live in the store rather than in one browser's local storage: the
+ * question they answer ("is the user looking at Harness somewhere?") is
+ * account-wide, and the phone has to be able to change the answer for the
+ * desktop.
+ */
+export interface SuppressionSettings {
+  readonly suppressWhileActive: boolean
+  readonly idleMinutes: number
+}
+
+/**
+ * Ten minutes is what Slack documents for the same judgement, and Discord
+ * exposes the identical wait as its "Push Notification Inactive Timeout".
+ */
+export const DEFAULT_SUPPRESSION_SETTINGS: SuppressionSettings = {
+  suppressWhileActive: true,
+  idleMinutes: 10,
+}
+
+/** Whole minutes only, bounded so no single page can mute a phone for a day. */
+export const MIN_IDLE_MINUTES = 1
+export const MAX_IDLE_MINUTES = 60
+
 export interface PushSubscriptionRecord {
   readonly endpoint: string
   readonly expirationTime: number | null
@@ -37,4 +64,5 @@ export interface PushStoreState {
   readonly version: 1
   readonly vapid: VapidKeys
   readonly subscriptions: readonly PushSubscriptionRecord[]
+  readonly settings: SuppressionSettings
 }
