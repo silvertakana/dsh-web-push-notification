@@ -145,6 +145,15 @@ demanding the app cookie would silently hand back the grey placeholder disc
 browsers draw for a missing icon. The files are the app's own artwork, not
 state.
 
+Both are the dsh mark: the icon is the white whale on the `#151517` neutral
+ground the app UI itself uses, on a tile carrying its own rounded corners,
+because a large icon is drawn as-is where a launcher icon is masked by the
+system. The badge is the same whale as a white silhouette on transparency,
+since Chrome tints it with `PorterDuff SRC_ATOP` over white and only its alpha
+channel survives; a coloured badge would lose its contrast in the status bar.
+`tests/notification-art.spec.ts` decodes both files and fails on a saturated
+blue pixel, which is what the brand-blue whale these replaced was.
+
 ## Service Worker scope
 
 The worker is served from `/__dsh/web-push/sw.js` and registered with scope
