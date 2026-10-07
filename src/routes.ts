@@ -150,7 +150,10 @@ function sendPng(res: ServerResponse, fileName: string): void {
     res.writeHead(200, {
       'content-type': 'image/png',
       'content-length': body.length,
-      'cache-control': 'public, max-age=3600',
+      // No caching, and no validator either: the artwork is mutable, so a device
+      // holding the previous copy would keep drawing the old look for the whole
+      // max-age with nothing to revalidate against.
+      'cache-control': 'no-store',
     })
     res.end(body)
   } catch {

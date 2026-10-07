@@ -42,14 +42,22 @@ function request(method: string, body?: unknown, contentType = 'application/json
   } as unknown as IncomingMessage
 }
 
-function response(): { response: ServerResponse; status: number; body: unknown; raw: unknown } {
+function response(): {
+  response: ServerResponse
+  status: number
+  headers: Record<string, unknown>
+  body: unknown
+  raw: unknown
+} {
   let status = 0
+  let headers: Record<string, unknown> = {}
   let body: unknown
   let raw: unknown
   const value = {
     response: {
-      writeHead(code: number) {
+      writeHead(code: number, written?: Record<string, unknown>) {
         status = code
+        headers = written ?? {}
       },
       end(value?: unknown) {
         raw = value
@@ -63,6 +71,9 @@ function response(): { response: ServerResponse; status: number; body: unknown; 
     } as unknown as ServerResponse,
     get status() {
       return status
+    },
+    get headers() {
+      return headers
     },
     get body() {
       return body
@@ -274,6 +285,7 @@ describe('Web Push routes', () => {
       expect(result.status, path).toBe(200)
       expect(Buffer.isBuffer(result.raw), path).toBe(true)
       expect((result.raw as Buffer).subarray(0, 8).equals(pngSignature), path).toBe(true)
+      expect(result.headers['cache-control'], path).toBe('no-store')
     }
   })
 })
