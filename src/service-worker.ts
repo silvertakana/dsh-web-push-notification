@@ -1,6 +1,13 @@
 export const SERVICE_WORKER_SOURCE: string = `
 const fallback = { title: 'DeepSeek Harness', body: 'A notification is ready.' };
 
+// The browser renders the notification's large icon from this URL and tints the
+// badge for the status bar. With no icon it substitutes a grey disc carrying a
+// monogram built from the origin's domain, so both assets are served next to
+// this worker instead.
+const icon = new URL('notification-icon.png', self.location).href;
+const badge = new URL('notification-badge.png', self.location).href;
+
 function payloadOf(event) {
   if (!event.data) return fallback;
   try {
@@ -21,7 +28,7 @@ self.addEventListener('push', (event) => {
     url: typeof value.url === 'string' ? value.url : '/',
     sessionId: typeof value.sessionId === 'string' ? value.sessionId : undefined,
   };
-  event.waitUntil(self.registration.showNotification(title, { body, tag, data }));
+  event.waitUntil(self.registration.showNotification(title, { body, tag, data, icon, badge }));
 });
 
 self.addEventListener('notificationclick', (event) => {

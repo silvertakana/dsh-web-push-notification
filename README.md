@@ -70,6 +70,18 @@ key, so the Push service only ever sees ciphertext even in **full** mode.
 Tapping a notification focuses an existing Harness window and opens the session
 the notification came from, or opens a new window at that session.
 
+The notification title is the session's own title from the Harness log, so a
+phone holding several sessions says which one each row belongs to. Until a
+session has a title, the title falls back to the event kind.
+
+Every notification carries the app's large icon and a monochrome status-bar
+badge, served by this plugin at `/__dsh/web-push/notification-icon.png` and
+`/__dsh/web-push/notification-badge.png`. Those two routes answer without the
+session gate on purpose: the browser fetches a notification icon by itself, so
+demanding the app cookie would silently hand back the grey placeholder disc
+browsers draw for a missing icon. The files are the app's own artwork, not
+state.
+
 ## Service Worker scope
 
 The worker is served from `/__dsh/web-push/sw.js` and registered with scope
@@ -100,6 +112,12 @@ whatever root-scope worker owns the page.
   is no longer a dependency.
 - The build launches TypeScript through the running Node binary, so it works on
   Windows where `node_modules/.bin/tsc` is an executable shell script.
+- Notification titles name the session they came from, using the Harness session
+  title; the event-kind title remains the fallback before a session has one.
+- Notifications carry a large icon and a monochrome status-bar badge, so Chrome
+  no longer substitutes its grey letter placeholder disc.
+- The notification tag includes the session id, so two sessions reaching the
+  same turn and outcome no longer collapse into one row on the phone.
 
 ## License
 

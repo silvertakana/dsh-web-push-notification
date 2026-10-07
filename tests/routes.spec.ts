@@ -3,7 +3,13 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createPushRoutes, CONFIG_PATH, SERVICE_WORKER_PATH } from '../src/routes.ts'
+import {
+  createPushRoutes,
+  CONFIG_PATH,
+  NOTIFICATION_BADGE_PATH,
+  NOTIFICATION_ICON_PATH,
+  SERVICE_WORKER_PATH,
+} from '../src/routes.ts'
 import type { PushSender } from '../src/sender.ts'
 import { PushStore } from '../src/store.ts'
 
@@ -36,15 +42,17 @@ function request(method: string, body?: unknown, contentType = 'application/json
   } as unknown as IncomingMessage
 }
 
-function response(): { response: ServerResponse; status: number; body: unknown } {
+function response(): { response: ServerResponse; status: number; body: unknown; raw: unknown } {
   let status = 0
   let body: unknown
+  let raw: unknown
   const value = {
     response: {
       writeHead(code: number) {
         status = code
       },
       end(value?: unknown) {
+        raw = value
         const text = value === undefined ? undefined : String(value)
         try {
           body = text === undefined ? undefined : JSON.parse(text)
@@ -58,6 +66,9 @@ function response(): { response: ServerResponse; status: number; body: unknown }
     },
     get body() {
       return body
+    },
+    get raw() {
+      return raw
     },
   }
   return value
@@ -244,5 +255,25 @@ describe('Web Push routes', () => {
     await find('/__dsh/web-push/test', routes).handler(request('POST', { body: 'x'.repeat(1001) }), tooLong.response)
     expect(tooLong.status).toBe(400)
     expect(deliveries).toBe(0)
+  })
+
+  it('serves the notification artwork even when no session is presented', async () => {
+    root = mkdtempSync(join(tmpdir(), 'dsh-web-push-icons-'))
+    const store = PushStore.open(join(root, 'state.json'), () => ({ publicKey: 'AQID', privateKey: 'BAUG' }))
+    const routes = createPushRoutes({
+      store,
+      sender: { send: vi.fn(async () => {}) },
+      maxRequestBodyBytes: 1024,
+      // The browser fetches a notification's icon itself, with no app cookie.
+      requestRejection: () => 401,
+    })
+    const pngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+    for (const path of [NOTIFICATION_ICON_PATH, NOTIFICATION_BADGE_PATH]) {
+      const result = response()
+      await find(path, routes).handler(request('GET'), result.response)
+      expect(result.status, path).toBe(200)
+      expect(Buffer.isBuffer(result.raw), path).toBe(true)
+      expect((result.raw as Buffer).subarray(0, 8).equals(pngSignature), path).toBe(true)
+    }
   })
 })

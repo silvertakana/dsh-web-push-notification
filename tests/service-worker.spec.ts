@@ -19,4 +19,10 @@ describe('Service Worker source', () => {
     expect(SERVICE_WORKER_SOURCE).toContain('/__dsh/web-push/unsubscribe')
     expect(SERVICE_WORKER_SOURCE).not.toContain('caches.open')
   })
+
+  it('ships a large icon and a status-bar badge with every notification', () => {
+    expect(SERVICE_WORKER_SOURCE).toContain("new URL('notification-icon.png', self.location)")
+    expect(SERVICE_WORKER_SOURCE).toContain("new URL('notification-badge.png', self.location)")
+    expect(SERVICE_WORKER_SOURCE).toContain('{ body, tag, data, icon, badge }')
+  })
 })

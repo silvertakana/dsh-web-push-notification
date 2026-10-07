@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import type { ServerResponse, IncomingMessage } from 'node:http'
 import type { HostConnectionHandle } from '@deepseek-ai/dsh-client-connection'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
@@ -14,6 +15,10 @@ export const CONFIG_PATH = `${ROUTE_PREFIX}/config`
 export const SERVICE_WORKER_PATH = `${ROUTE_PREFIX}/sw.js`
 /** A disjoint scope prevents this worker from controlling application pages. */
 export const SERVICE_WORKER_SCOPE = `${ROUTE_PREFIX}/`
+/** Large icon the browser renders in the notification's icon slot. */
+export const NOTIFICATION_ICON_PATH = `${ROUTE_PREFIX}/notification-icon.png`
+/** Monochrome silhouette the browser tints for the status bar. */
+export const NOTIFICATION_BADGE_PATH = `${ROUTE_PREFIX}/notification-badge.png`
 const SUBSCRIBE_PATH = `${ROUTE_PREFIX}/subscribe`
 const UNSUBSCRIBE_PATH = `${ROUTE_PREFIX}/unsubscribe`
 const TEST_PATH = `${ROUTE_PREFIX}/test`
@@ -70,6 +75,20 @@ export function createPushRoutes(options: PushRouteOptions): WebRoute[] {
     },
     {
       kind: 'exact',
+      path: NOTIFICATION_ICON_PATH,
+      handler: async (_req, res) => {
+        sendPng(res, 'notification-icon.png')
+      },
+    },
+    {
+      kind: 'exact',
+      path: NOTIFICATION_BADGE_PATH,
+      handler: async (_req, res) => {
+        sendPng(res, 'notification-badge.png')
+      },
+    },
+    {
+      kind: 'exact',
       path: SUBSCRIBE_PATH,
       handler: method('POST', async (req, res) => {
         const subscription = await clientInput(async () =>
@@ -112,6 +131,31 @@ export function createPushRoutes(options: PushRouteOptions): WebRoute[] {
       }),
     },
   ]
+}
+
+/** Public artwork sits beside the built bundle: lib/index.js -> ../public. */
+const PUBLIC_DIR = new URL('../public/', import.meta.url)
+
+/**
+ * Serve one bundled PNG.
+ *
+ * These routes skip the session gate every state-carrying route uses: the
+ * browser fetches a notification's icon on its own, so a rejected request would
+ * silently degrade to the grey placeholder disc. The bytes are the app's own
+ * artwork, never session content.
+ */
+function sendPng(res: ServerResponse, fileName: string): void {
+  try {
+    const body = readFileSync(new URL(fileName, PUBLIC_DIR))
+    res.writeHead(200, {
+      'content-type': 'image/png',
+      'content-length': body.length,
+      'cache-control': 'public, max-age=3600',
+    })
+    res.end(body)
+  } catch {
+    sendText(res, 404, 'not found', 'text/plain; charset=utf-8')
+  }
 }
 
 async function clientInput<T>(read: () => Promise<T>): Promise<T> {

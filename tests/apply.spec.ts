@@ -57,6 +57,8 @@ describe('host plugin registration', () => {
     expect(routes.map((route) => route.path)).toEqual([
       '/__dsh/web-push/config',
       '/__dsh/web-push/sw.js',
+      '/__dsh/web-push/notification-icon.png',
+      '/__dsh/web-push/notification-badge.png',
       '/__dsh/web-push/subscribe',
       '/__dsh/web-push/unsubscribe',
       '/__dsh/web-push/test',

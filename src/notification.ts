@@ -7,6 +7,12 @@ export const MAX_NOTIFICATION_BODY_BYTES = 2000
 export interface NotificationOptions {
   readonly bodyMode?: NotificationBodyMode
   readonly events?: readonly SessionEvent[]
+  /**
+   * The session's own title. When set it becomes the notification title, so a
+   * phone showing several sessions says which one each row belongs to; the
+   * kind title stays the fallback for a log that carries none yet.
+   */
+  readonly sessionTitle?: string
 }
 
 export interface NotificationMessage {
@@ -18,6 +24,25 @@ export interface NotificationMessage {
   readonly sessionId: string
 }
 
+/**
+ * Latest logged `session/title` text, or `undefined` before one lands.
+ *
+ * The event is declared by `@deepseek-ai/dsh-session-title`, a package this
+ * plugin deliberately does not depend on, so the log is read structurally: the
+ * fold is last-wins and touches nothing but `data.title`.
+ */
+export function sessionTitleOf(events: readonly SessionEvent[]): string | undefined {
+  for (let index = events.length - 1; index >= 0; index--) {
+    const candidate = events[index] as unknown as { readonly type?: unknown; readonly data?: unknown } | undefined
+    if (candidate?.type !== 'session/title') continue
+    const data = candidate.data as { readonly title?: unknown } | undefined
+    if (typeof data?.title !== 'string') continue
+    const title = data.title.trim()
+    if (title !== '') return title
+  }
+  return undefined
+}
+
 export function notificationForEvent(
   sessionId: string,
   event: SessionEvent,
@@ -25,25 +50,34 @@ export function notificationForEvent(
 ): NotificationMessage | undefined {
   const bodyMode = options.bodyMode ?? 'full'
   const events = options.events ?? []
+  const sessionTitle = options.sessionTitle?.trim()
+  const titled = (kindTitle: string): string =>
+    sessionTitle === undefined || sessionTitle === '' ? kindTitle : sessionTitle
   switch (event.type) {
     case 'turn/end': {
       const kind = event.data.reason.kind === 'completed' ? 'turnCompleted' : 'turnFailed'
-      const title = kind === 'turnCompleted' ? 'DeepSeek Harness: task completed' : 'DeepSeek Harness: task stopped'
+      const kindTitle = kind === 'turnCompleted' ? 'DeepSeek Harness: task completed' : 'DeepSeek Harness: task stopped'
       const summary = `Turn ${String(event.data.turn)} ${kind === 'turnCompleted' ? 'completed.' : `${event.data.reason.kind}.`}`
       const body = bodyMode === 'full' ? fullTurnBody(event, events, summary) : summary
-      return message(sessionId, kind, title, body, `turn-${String(event.data.turn)}-${event.data.reason.kind}`)
+      return message(
+        sessionId,
+        kind,
+        titled(kindTitle),
+        body,
+        `turn-${String(event.data.turn)}-${event.data.reason.kind}`,
+      )
     }
     case 'tool/call':
       if (event.data.name !== 'ask_user_question') return undefined
       return message(
         sessionId,
         'question',
-        'DeepSeek Harness: response required',
+        titled('DeepSeek Harness: response required'),
         bodyMode === 'full' ? questionBody(event.data.arguments) : 'A response is required to continue the turn.',
         `question-${String(event.data.callId)}`,
       )
     default:
-      return approvalMessage(sessionId, event, bodyMode)
+      return approvalMessage(sessionId, event, bodyMode, titled('DeepSeek Harness: approval required'))
   }
 }
 
@@ -70,12 +104,13 @@ function approvalMessage(
   sessionId: string,
   event: SessionEvent,
   bodyMode: NotificationBodyMode,
+  kindTitle: string,
 ): NotificationMessage | undefined {
   if ((event.type as string) !== 'approval/asked') return undefined
   const data = event.data as unknown as { readonly id: string; readonly toolName: string; readonly reason?: string }
   const summary = `Approval is required for ${data.toolName}.`
   const body = bodyMode === 'full' && typeof data.reason === 'string' && data.reason !== '' ? data.reason : summary
-  return message(sessionId, 'approval', 'DeepSeek Harness: approval required', body, `approval-${data.id}`)
+  return message(sessionId, 'approval', kindTitle, body, `approval-${data.id}`)
 }
 
 function questionBody(argumentsText: string): string {
@@ -105,7 +140,9 @@ function message(
     kind,
     title,
     body: trimBody(body),
-    tag: `dsh-web-push-${tag}`,
+    // The session is part of the tag: two sessions reaching the same turn and
+    // outcome must not collapse into one row on the phone.
+    tag: `dsh-web-push-${sessionId}-${tag}`,
     url: `/?dshSession=${encodeURIComponent(sessionId)}`,
     sessionId,
   }

@@ -5,7 +5,7 @@ import type {} from '@deepseek-ai/dsh-client-connection'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import { deliver } from './delivery.ts'
-import { notificationForEvent } from './notification.ts'
+import { notificationForEvent, sessionTitleOf } from './notification.ts'
 import { createPushRoutes } from './routes.ts'
 import { createWebPushSender, generateVapidKeys } from './sender.ts'
 import { PushStore } from './store.ts'
@@ -84,7 +84,8 @@ export function apply(ctx: Context, config?: Config): void {
   ctx.effect(() => {
     const dispose = ctx.on('session/event', (session: Session, event: SessionEvent) => {
       const events = session.snapshotEvents()
-      const summary = notificationForEvent(String(session.id), event, { bodyMode: 'summary', events })
+      const sessionTitle = sessionTitleOf(events)
+      const summary = notificationForEvent(String(session.id), event, { bodyMode: 'summary', events, sessionTitle })
       if (summary === undefined) return
       void deliver(
         store,
@@ -96,6 +97,7 @@ export function apply(ctx: Context, config?: Config): void {
           notificationForEvent(String(session.id), event, {
             bodyMode: subscription.preferences.bodyMode,
             events,
+            sessionTitle,
           }) ?? summary,
       ).catch((error) => {
         ctx.logger.warn(error instanceof Error ? error : new Error(String(error)))
