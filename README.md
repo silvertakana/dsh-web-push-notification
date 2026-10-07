@@ -47,6 +47,12 @@ iOS and iPadOS, add the profile to the Home Screen before enabling Web Push.
 
 Then open **Settings → Notifications**, enable Web Push, and use **Send test**.
 
+The test button can take optional **Title** and **Body** fields. A blank field is
+passed to the server as absent, so the test notification uses the default copy (the
+placeholders in those inputs show it); fill one in only to check how a custom title
+or body renders on your phone. The real notifications are unaffected by these two
+fields.
+
 ## Notification behavior
 
 Each browser or installed PWA stores its notification settings separately. All
