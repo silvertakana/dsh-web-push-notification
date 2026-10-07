@@ -48,6 +48,7 @@ export function validatePreferences(value: unknown): NotificationPreferences {
     typeof value.turnFailed !== 'boolean' ||
     typeof value.approval !== 'boolean' ||
     typeof value.question !== 'boolean' ||
+    (value.subagentRuns !== undefined && typeof value.subagentRuns !== 'boolean') ||
     (value.bodyMode !== undefined && value.bodyMode !== 'full' && value.bodyMode !== 'summary')
   ) {
     throw new Error('subscription notification preferences are invalid')
@@ -57,6 +58,8 @@ export function validatePreferences(value: unknown): NotificationPreferences {
     turnFailed: value.turnFailed,
     approval: value.approval,
     question: value.question,
+    // A record stored before this preference existed reads as "no subagent rows".
+    subagentRuns: (value.subagentRuns ?? DEFAULT_NOTIFICATION_PREFERENCES.subagentRuns) as boolean,
     bodyMode: (value.bodyMode ?? DEFAULT_NOTIFICATION_PREFERENCES.bodyMode) as NotificationBodyMode,
   }
 }

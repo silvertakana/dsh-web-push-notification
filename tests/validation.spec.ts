@@ -12,7 +12,14 @@ const subscription = {
   endpoint: 'https://push.example.test/send/one',
   expirationTime: null,
   keys: { p256dh: 'AQID', auth: 'BAUG' },
-  preferences: { turnCompleted: true, turnFailed: true, approval: true, question: true, bodyMode: 'full' as const },
+  preferences: {
+    turnCompleted: true,
+    turnFailed: true,
+    approval: true,
+    question: true,
+    subagentRuns: false,
+    bodyMode: 'full' as const,
+  },
 }
 
 describe('subscription validation', () => {
@@ -28,6 +35,17 @@ describe('subscription validation', () => {
       preferences: { turnCompleted: true, turnFailed: true, approval: true, question: true },
     })
     expect(value.preferences.bodyMode).toBe('full')
+    // A device that predates the subagent preference stays quiet about them.
+    expect(value.preferences.subagentRuns).toBe(false)
+  })
+
+  it('rejects a subagent preference that is not a boolean', () => {
+    expect(() =>
+      validateSubscription({
+        ...subscription,
+        preferences: { ...subscription.preferences, subagentRuns: 'yes' },
+      }),
+    ).toThrow(/preferences/)
   })
 
   it('rejects insecure endpoints and padded keys', () => {

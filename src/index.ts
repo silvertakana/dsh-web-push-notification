@@ -97,19 +97,21 @@ export function apply(ctx: Context, config?: Config): void {
       const sessionTitle = sessionTitleOf(events)
       const summary = notificationForEvent(String(session.id), event, { bodyMode: 'summary', events, sessionTitle })
       if (summary === undefined) return
-      void deliver(
-        store,
-        sender,
-        summary,
-        summary.kind,
-        onDeliveryFailure,
-        (subscription) =>
+      // A dispatched subagent runs in a session of its own, so its turn would
+      // ring a second time for work the session that dispatched it reports when
+      // that session finishes. Each device chooses whether it still wants it.
+      const runsItself = session.header.origin === 'subagent'
+      void deliver(store, sender, summary, {
+        kind: summary.kind,
+        wants: runsItself ? (subscription) => subscription.preferences.subagentRuns : undefined,
+        onFailure: onDeliveryFailure,
+        payloadFor: (subscription) =>
           notificationForEvent(String(session.id), event, {
             bodyMode: subscription.preferences.bodyMode,
             events,
             sessionTitle,
           }) ?? summary,
-      ).catch((error) => {
+      }).catch((error) => {
         ctx.logger.warn(error instanceof Error ? error : new Error(String(error)))
       })
     })

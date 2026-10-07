@@ -3,10 +3,22 @@ export interface NotificationPreferences {
   readonly turnFailed: boolean
   readonly approval: boolean
   readonly question: boolean
+  /**
+   * Whether this device wants the row a dispatched subagent's own turn would
+   * produce. Off by default: a subagent runs in a session of its own, so its
+   * turn would ring a second time for work the session that dispatched it
+   * already reports when that session finishes.
+   */
+  readonly subagentRuns: boolean
   readonly bodyMode: NotificationBodyMode
 }
 
-export type NotificationKind = Exclude<keyof NotificationPreferences, 'bodyMode'>
+/**
+ * The preference keys a payload is gated on. `bodyMode` chooses which body a
+ * device receives, and `subagentRuns` filters a whole class of session out of
+ * every kind, so neither one is a kind of its own.
+ */
+export type NotificationKind = Exclude<keyof NotificationPreferences, 'bodyMode' | 'subagentRuns'>
 
 export type NotificationBodyMode = 'full' | 'summary'
 
@@ -15,6 +27,7 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   turnFailed: true,
   approval: true,
   question: true,
+  subagentRuns: false,
   bodyMode: 'full',
 }
 

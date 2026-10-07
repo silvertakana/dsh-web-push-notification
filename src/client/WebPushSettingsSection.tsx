@@ -404,6 +404,25 @@ export function WebPushSettingsSection(_props: PropsRuntime<'settings.section'>)
         </label>
       ))}
 
+      <label style={rowStyle}>
+        <span style={rowTextStyle}>
+          <span style={titleStyle}>Subagent runs</span>
+          <span style={descriptionStyle}>
+            Notify when a dispatched subagent finishes its own turn. Off, only the session that dispatched it reports
+            the outcome.
+          </span>
+        </span>
+        <input
+          type="checkbox"
+          checked={preferences.subagentRuns}
+          disabled={settingsDisabled}
+          style={checkboxStyle}
+          onChange={(event) => {
+            void updatePreference('subagentRuns', event.currentTarget.checked)
+          }}
+        />
+      </label>
+
       <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--dsw-alias-border-l2)' }}>
         <div style={{ ...descriptionStyle, fontWeight: 600 }}>While you are using Harness</div>
         <label style={rowStyle}>

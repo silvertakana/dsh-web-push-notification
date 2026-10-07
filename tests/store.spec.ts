@@ -66,4 +66,29 @@ describe('PushStore', () => {
     )
     expect(PushStore.open(legacyPath, () => keys).settings).toEqual({ suppressWhileActive: true, idleMinutes: 10 })
   })
+
+  it('reads a subscription stored before the subagent preference existed as quiet', () => {
+    root = mkdtempSync(join(tmpdir(), 'dsh-web-push-store-'))
+    const legacyPath = join(root, 'legacy.json')
+    writeFileSync(
+      legacyPath,
+      JSON.stringify({
+        version: 1,
+        vapid: keys,
+        subscriptions: [
+          {
+            endpoint: subscription.endpoint,
+            expirationTime: null,
+            keys: subscription.keys,
+            preferences: { turnCompleted: true, turnFailed: true, approval: true, question: true, bodyMode: 'full' },
+          },
+        ],
+      }),
+    )
+    // Loading is the only step an existing device performs; no re-subscribe, no
+    // user action, and the record still reaches the panel with the field present.
+    const [stored] = PushStore.open(legacyPath, () => keys).list()
+    expect(stored?.preferences.subagentRuns).toBe(false)
+    expect(stored?.preferences.turnCompleted).toBe(true)
+  })
 })

@@ -160,8 +160,7 @@ export function createPushRoutes(options: PushRouteOptions): WebRoute[] {
             tag: `dsh-web-push-test-${String(Date.now())}`,
             url: '/',
           },
-          undefined,
-          options.onDeliveryFailure,
+          { onFailure: options.onDeliveryFailure },
         )
         sendJson(res, 200, report)
       }),

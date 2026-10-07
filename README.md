@@ -63,6 +63,11 @@ event types are enabled by default:
 - Approval required
 - Response required
 
+**Subagent runs** is the exception and is off by default. A dispatched subagent
+runs in a session of its own, so its turn would ring a second time for work the
+session that dispatched it already reports when that session finishes. Turn it on
+per browser when you want the subagent's own completion row as well.
+
 A notification can include full content or a summary:
 
 - **Full content** is the default and includes relevant context such as the
@@ -158,6 +163,10 @@ whatever root-scope worker owns the page.
   no longer substitutes its grey letter placeholder disc.
 - The notification tag includes the session id, so two sessions reaching the
   same turn and outcome no longer collapse into one row on the phone.
+- Subagent turns no longer notify by default. A subagent runs in a session of its
+  own, so its turn rang a second time for work the dispatching session reports
+  anyway; **Subagent runs** in **Settings -> Notifications** turns that row back
+  on, per device.
 - The quiet period and the away threshold are configurable in **Settings ->
   Notifications -> While you are using Harness**, and are stored by the server so
   every device agrees.

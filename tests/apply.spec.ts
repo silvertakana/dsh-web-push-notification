@@ -104,7 +104,7 @@ describe('host plugin registration', () => {
       data: { turn: 1, step: 1, message: { content: [{ type: 'text', text: 'The answer.' }] } },
     })
     const end = event({ type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } })
-    onSessionEvent?.({ id: 'session-1', snapshotEvents: () => [assistant, end] } as Session, end)
+    onSessionEvent?.({ id: 'session-1', header: {}, snapshotEvents: () => [assistant, end] } as Session, end)
 
     await vi.waitFor(() => {
       expect(webPush.sendNotification).toHaveBeenCalledTimes(2)
@@ -157,7 +157,7 @@ describe('host plugin registration', () => {
       data: { turn: 1, step: 1, message: { content: [{ type: 'text', text: 'The answer.' }] } },
     })
     const end = event({ type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } })
-    const session = { id: 'session-1', snapshotEvents: () => [assistant, end] } as Session
+    const session = { id: 'session-1', header: {}, snapshotEvents: () => [assistant, end] } as Session
 
     expect((await reportPresence(presenceRoute, { id: 'desktop-page', active: true })).status).toBe(200)
     onSessionEvent?.(session, end)
@@ -208,12 +208,71 @@ describe('host plugin registration', () => {
       data: { turn: 1, step: 1, message: { content: [{ type: 'text', text: 'The answer.' }] } },
     })
     const end = event({ type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } })
-    const session = { id: 'session-1', snapshotEvents: () => [assistant, end] } as Session
+    const session = { id: 'session-1', header: {}, snapshotEvents: () => [assistant, end] } as Session
 
     expect((await reportPresence(presenceRoute, { id: 'desktop-page', active: true })).status).toBe(200)
     onSessionEvent?.(session, end)
     await vi.waitFor(() => {
       expect(webPush.sendNotification).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  it("keeps a subagent's own turn quiet unless a device asks for it", async () => {
+    root = mkdtempSync(join(tmpdir(), 'dsh-web-push-apply-'))
+    const storagePath = join(root, 'state.json')
+    const store = PushStore.open(storagePath, () => ({ publicKey: 'AQID', privateKey: 'BAUG' }))
+    store.upsert(subscription('https://push.example.test/quiet', 'full', true))
+    store.upsert(subscription('https://push.example.test/asks', 'full', true, true))
+    let onSessionEvent: ((session: Session, event: SessionEvent) => void) | undefined
+    const ctx = {
+      connection: { requestRejection: () => undefined },
+      webServer: { register: () => () => {} },
+      logger: { warn: vi.fn() },
+      on(name: string, listener: (session: Session, event: SessionEvent) => void) {
+        if (name === 'session/event') onSessionEvent = listener
+        return () => {}
+      },
+      effect(factory: () => (() => void) | undefined) {
+        factory()
+      },
+    }
+    apply(ctx as never, {
+      vapidSubject: 'mailto:test@example.invalid',
+      storagePath,
+      maxRequestBodyBytes: 1024,
+    })
+    const assistant = event({
+      type: 'assistant/message',
+      data: { turn: 1, step: 1, message: { content: [{ type: 'text', text: 'Found it.' }] } },
+    })
+    const end = event({ type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } })
+
+    // A subagent runs in a session whose header says so; the dispatching session
+    // reports the same work, so only the device that asked hears about the child.
+    const child = {
+      id: 'session-child',
+      header: { origin: 'subagent' },
+      snapshotEvents: () => [assistant, end],
+    } as unknown as Session
+    onSessionEvent?.(child, end)
+    await vi.waitFor(() => {
+      expect(webPush.sendNotification).toHaveBeenCalledTimes(1)
+    })
+    expect(webPush.sendNotification).toHaveBeenCalledWith(
+      expect.objectContaining({ endpoint: 'https://push.example.test/asks' }),
+      expect.any(String),
+      expect.anything(),
+    )
+
+    // A top-level session still reaches every device that enabled the kind.
+    const parent = {
+      id: 'session-parent',
+      header: {},
+      snapshotEvents: () => [assistant, end],
+    } as unknown as Session
+    onSessionEvent?.(parent, end)
+    await vi.waitFor(() => {
+      expect(webPush.sendNotification).toHaveBeenCalledTimes(3)
     })
   })
 
@@ -257,12 +316,12 @@ describe('host plugin registration', () => {
   })
 })
 
-function subscription(endpoint: string, bodyMode: 'full' | 'summary', turnCompleted: boolean) {
+function subscription(endpoint: string, bodyMode: 'full' | 'summary', turnCompleted: boolean, subagentRuns = false) {
   return {
     endpoint,
     expirationTime: null,
     keys: { p256dh: 'AQID', auth: 'BAUG' },
-    preferences: { turnCompleted, turnFailed: true, approval: true, question: true, bodyMode },
+    preferences: { turnCompleted, turnFailed: true, approval: true, question: true, subagentRuns, bodyMode },
   }
 }
 
