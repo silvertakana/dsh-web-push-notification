@@ -14,6 +14,7 @@ import {
   type PushRouteOptions,
 } from '../src/routes.ts'
 import type { PushSender } from '../src/sender.ts'
+import { SERVICE_WORKER_SOURCE } from '../src/service-worker.ts'
 import { PushStore } from '../src/store.ts'
 
 const subscription = {
@@ -298,6 +299,19 @@ describe('Web Push routes', () => {
       expect((result.raw as Buffer).subarray(0, 8).equals(pngSignature), path).toBe(true)
       expect(result.headers['cache-control'], path).toBe('no-store')
     }
+  })
+
+  it('resolves the artwork the worker asks for to the route that serves it', () => {
+    // The worker names the artwork relative to itself. A route registered at any
+    // other path would 404, and Chrome would draw the origin's grey monogram
+    // disc in the large-icon slot instead of the whale.
+    const named = ['notification-icon.png', 'notification-badge.png'].filter((fileName) =>
+      SERVICE_WORKER_SOURCE.includes(`new URL('${fileName}', self.location)`),
+    )
+    expect(named).toEqual(['notification-icon.png', 'notification-badge.png'])
+    const worker = new URL(SERVICE_WORKER_PATH, 'https://example.test')
+    expect(new URL('notification-icon.png', worker).pathname).toBe(NOTIFICATION_ICON_PATH)
+    expect(new URL('notification-badge.png', worker).pathname).toBe(NOTIFICATION_BADGE_PATH)
   })
 
   it('records a page that is in front of the user', async () => {

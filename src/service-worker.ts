@@ -8,6 +8,17 @@ const fallback = { title: 'DeepSeek Harness', body: 'A notification is ready.' }
 const icon = new URL('notification-icon.png', self.location).href;
 const badge = new URL('notification-badge.png', self.location).href;
 
+// Android draws at most two action buttons under an expanded notification, and
+// its own ceiling is two: a third is not ignored, it throws. A platform that
+// reports no limit is assumed to accept that many rather than shipping a row
+// with no way to open it.
+const reportedActions = self.Notification ? Number(self.Notification.maxActions) : 0;
+const actionLimit = reportedActions > 0 ? Math.min(reportedActions, 2) : 2;
+const actions = [
+  { action: 'open', title: 'Open' },
+  { action: 'dismiss', title: 'Dismiss' },
+].slice(0, actionLimit);
+
 // This scope covers no application page, so no navigation ever triggers an
 // update check for this worker. Without these handlers a rebuilt worker stays in
 // the waiting state and the previous copy keeps handling push events until
@@ -35,11 +46,23 @@ self.addEventListener('push', (event) => {
     url: typeof value.url === 'string' ? value.url : '/',
     sessionId: typeof value.sessionId === 'string' ? value.sessionId : undefined,
   };
-  event.waitUntil(self.registration.showNotification(title, { body, tag, data, icon, badge }));
+  const options = { body, data, icon, badge };
+  if (typeof tag === 'string') {
+    options.tag = tag;
+    // The tag is stable per session and kind, so a second completion replaces
+    // the first row instead of stacking beside it; without renotify that
+    // replacement would land silently.
+    options.renotify = true;
+  }
+  if (actions.length > 0) options.actions = actions;
+  event.waitUntil(self.registration.showNotification(title, options));
 });
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
+  // "Dismiss" is a close with no navigation: the row goes away and the page
+  // stays wherever the user left it.
+  if (event.action === 'dismiss') return;
   const raw = event.notification.data && event.notification.data.url;
   let target = self.location.origin + '/';
   try {

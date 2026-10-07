@@ -22,6 +22,20 @@ export type NotificationKind = Exclude<keyof NotificationPreferences, 'bodyMode'
 
 export type NotificationBodyMode = 'full' | 'summary'
 
+/**
+ * How hard the Push service should try to reach a device that is asleep.
+ *
+ * An approval or a question is worthless late, so it goes out at high urgency
+ * and waits out no power saving; a finished turn can wait for the next wake-up.
+ */
+export type PushUrgency = 'very-low' | 'low' | 'normal' | 'high'
+
+/** The Push service's own per-message hints. Both are optional. */
+export interface PushHeaders {
+  readonly urgency?: PushUrgency
+  readonly topic?: string
+}
+
 export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   turnCompleted: true,
   turnFailed: true,

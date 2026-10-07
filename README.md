@@ -115,9 +115,27 @@ the question they answer is whether you are looking at Harness anywhere; the
 phone can therefore change what the desktop does. An open page adopts a new
 threshold on its next report, so no reload is needed.
 
-The notification title is the session's own title from the Harness log, so a
-phone holding several sessions says which one each row belongs to. Until a
-session has a title, the title falls back to the event kind.
+The notification title leads with what happened and then names the session:
+`Done · Fix the paste bug`, `Approval · Ship it`. The kind leads because Android
+gives a notification one line and cuts its tail, so a session name first would push
+the outcome out of sight; the whole title is clamped to 48 characters on a word
+boundary. Until a session has a title, the name is the app's own.
+
+The body is the same content as before, with markdown reduced to plain text:
+heading markers, list bullets become `•`, links keep their label and drop the URL,
+and bold, italic and inline-code markers go. A phone then shows prose rather than
+`**What I did:**`. The result is trimmed to the byte budget as before.
+
+Android also gets two buttons where the browser supports them - **Open** and
+**Dismiss** - and a session's repeat notifications replace one row instead of
+stacking, because the tag no longer carries the turn number. A replaced row still
+alerts, so a second completion is not silent. Chrome on Android reports a maximum of
+two actions, and the worker never asks for more.
+
+Each push carries a `Topic` (per session and kind) and an `Urgency`: `high` for an
+approval, a question or a failure, `normal` for a completed turn. The topic means a
+later completion can never replace a pending approval row; the urgency is the hint a
+push service uses when deciding whether to wake a sleeping device.
 
 Every notification carries the app's large icon and a monochrome status-bar
 badge, served by this plugin at `/__dsh/web-push/notification-icon.png` and
@@ -174,6 +192,17 @@ whatever root-scope worker owns the page.
   device: each page reports focus, visibility, and idleness, and an idle or dead
   page stops counting. Pointer movement is attention, not just clicks. The
   **Send test** button still always sends.
+- Notification titles lead with the event kind and then the session, clamped to 48
+  characters, because Android truncates a one-line title from the right.
+- Notification bodies are converted from markdown to plain text before sending, so a
+  phone shows prose instead of `**bold**`, link syntax and fence markers.
+- Notifications carry **Open** and **Dismiss** actions where the browser supports
+  them, never more than `Notification.maxActions`, and a replaced row re-alerts.
+- The notification tag no longer includes the turn number, so a session's repeat
+  completions replace one row instead of stacking. `Topic` is set per session and
+  kind, so a pending approval can never be replaced by a later completion.
+- Push messages carry an `Urgency` per event kind: `high` for an approval, a question
+  or a failure, `normal` for a completed turn.
 
 ## License
 

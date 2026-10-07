@@ -120,6 +120,14 @@ describe('host plugin registration', () => {
       expect.any(String),
       expect.objectContaining({ TTL: 86_400 }),
     )
+    // The Push service receives the per-message hints as well: a finished turn
+    // waits for the next wake-up, and a session's news replaces itself in the
+    // queue instead of arriving as a backlog.
+    expect(webPush.sendNotification).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.any(String),
+      expect.objectContaining({ urgency: 'normal', topic: expect.stringMatching(/^[A-Za-z0-9_-]{1,32}$/) }),
+    )
   })
 
   it('sends nothing while a page is in focus, and resumes once no page is', async () => {

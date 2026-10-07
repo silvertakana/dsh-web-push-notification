@@ -1,3 +1,4 @@
+import { pushHeadersOf } from './notification.ts'
 import type { NotificationKind, PushSubscriptionRecord } from './types.ts'
 import type { PushSender } from './sender.ts'
 import type { PushStore } from './store.ts'
@@ -41,9 +42,10 @@ export async function deliver(
     if (kind !== undefined && !subscription.preferences[kind]) continue
     if (wants !== undefined && !wants(subscription)) continue
     try {
-      const serialized = payloadFor === undefined ? serializedPayload : JSON.stringify(payloadFor(subscription))
+      const built = payloadFor === undefined ? payload : payloadFor(subscription)
+      const serialized = payloadFor === undefined ? serializedPayload : JSON.stringify(built)
       if (serialized === undefined) throw new Error('push payload is not JSON-serializable')
-      await sender.send(subscription, serialized)
+      await sender.send(subscription, serialized, pushHeadersOf(built))
       sent++
     } catch (error) {
       const status = errorStatus(error)
