@@ -93,6 +93,14 @@ Two things stop a forgotten page from muting you forever:
 **Send test** bypasses this deliberately: a test is a request for a
 notification, not a report that something happened.
 
+The judgement follows the two clients that have had to solve this exact
+problem. Slack resumes mobile notifications "10 minutes after Slack stops
+detecting cursor activity" (or a minute after the desktop screen locks), and
+Discord exposes the same wait as its **Push Notification Inactive Timeout**. So
+cursor movement counts as attention and not just clicks: reading a long answer
+under a moving mouse keeps the page active, and going idle is what says you
+walked away.
+
 The notification title is the session's own title from the Harness log, so a
 phone holding several sessions says which one each row belongs to. Until a
 session has a title, the title falls back to the event kind.
@@ -143,7 +151,8 @@ whatever root-scope worker owns the page.
   same turn and outcome no longer collapse into one row on the phone.
 - Notifications are suppressed while a Harness page is in front of you, on any
   device: each page reports focus, visibility, and idleness, and an idle or dead
-  page stops counting. The **Send test** button still always sends.
+  page stops counting. Pointer movement is attention, not just clicks. The
+  **Send test** button still always sends.
 
 ## License
 

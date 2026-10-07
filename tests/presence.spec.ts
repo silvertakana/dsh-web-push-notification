@@ -123,6 +123,18 @@ describe('page presence reporter', () => {
     harness.stop()
   })
 
+  it('counts cursor movement and touch scrolling as attention, so a reader never falls idle', () => {
+    const harness = setup({ visible: true, focused: true }, { idleMs: 1000, heartbeatMs: 100 })
+    for (let step = 0; step < 4; step++) {
+      vi.advanceTimersByTime(900)
+      harness.page.emit(step % 2 === 0 ? 'pointermove' : 'touchmove')
+    }
+    expect(harness.posted().every((body) => body.active)).toBe(true)
+    vi.advanceTimersByTime(1100)
+    expect(harness.posted().at(-1)?.active).toBe(false)
+    harness.stop()
+  })
+
   it('releases the mute on dispose and stops listening', async () => {
     const harness = setup({ visible: true, focused: true })
     harness.stop()
@@ -132,6 +144,7 @@ describe('page presence reporter', () => {
     expect(beaconCall[0]).toBe(PRESENCE_PATH)
     expect(JSON.parse(await (beaconCall[1] as Blob).text())).toMatchObject({ active: false })
     expect(harness.page.listenerCount('keydown')).toBe(0)
+    expect(harness.page.listenerCount('pointermove')).toBe(0)
     expect(harness.page.listenerCount('visibilitychange')).toBe(0)
     harness.page.emit('focus')
     vi.advanceTimersByTime(PRESENCE_HEARTBEAT_MS * 5)
@@ -153,6 +166,10 @@ describe('presence defaults', () => {
   it('keeps the heartbeat well inside the server TTL, and idle below it', () => {
     expect(PRESENCE_HEARTBEAT_MS * 3).toBeLessThanOrEqual(PRESENCE_TTL_MS)
     expect(PRESENCE_TTL_MS).toBeLessThan(PRESENCE_IDLE_MS)
+  })
+
+  it('holds a focused but untouched page for the ten minutes Slack documents', () => {
+    expect(PRESENCE_IDLE_MS).toBe(10 * 60_000)
   })
 
   it('shares one prefix between the server routes and the client bundle', () => {

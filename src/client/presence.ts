@@ -10,10 +10,21 @@ export const PRESENCE_HEARTBEAT_MS = 20_000
  * A focused window on a machine nobody has touched is not attention. Past this
  * much silence the page reports itself inactive, so a desktop left open on the
  * far side of the room does not keep a phone quiet all evening.
+ *
+ * Ten minutes is Slack's documented default for the same judgement: it resumes
+ * mobile notifications "10 minutes after Slack stops detecting cursor
+ * activity". Discord offers the same idea as "Push Notification Inactive
+ * Timeout", so the value is a known-good point rather than a guess.
  */
 export const PRESENCE_IDLE_MS = 10 * 60_000
 
-const INPUT_EVENTS = ['keydown', 'pointerdown', 'touchstart', 'wheel'] as const
+/**
+ * What counts as using the page. Slack measures its away state in cursor
+ * activity, so movement has to hold the page active: reading a long answer
+ * without clicking anything is still attention, and without the movement
+ * events the page would fall idle under a user who is still reading it.
+ */
+const INPUT_EVENTS = ['keydown', 'pointerdown', 'pointermove', 'touchstart', 'touchmove', 'wheel'] as const
 
 /** The window and document surface the reporter touches, so a test can supply its own. */
 export interface PresenceView {
