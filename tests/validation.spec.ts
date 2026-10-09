@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  declaresPreferences,
   DEFAULT_TEST_MESSAGE,
   validateEndpoint,
+  validatePreviousEndpoint,
   validateSettings,
   validateStoreState,
   validateSubscription,
@@ -79,10 +81,30 @@ describe('subscription validation', () => {
       'https://[::1]/send/one',
       'https://[fd00::1]/send/one',
       'https://printer.local/send/one',
+      // A trailing dot is the same name to DNS, and the URL parser keeps it on a
+      // name while normalizing it away on a dotted quad.
+      'https://localhost./send/one',
+      'https://printer.local./send/one',
+      // An IPv4-mapped IPv6 literal reaches the same host as the dotted quad.
+      'https://[::ffff:127.0.0.1]/send/one',
+      'https://[::ffff:169.254.169.254]/send/one',
     ]
     for (const endpoint of rejected) {
       expect(() => validateSubscription({ ...subscription, endpoint }), endpoint).toThrow(/private, loopback/)
     }
+  })
+
+  it('reads the endpoint a renewal replaces and whether the request chose preferences', () => {
+    expect(validatePreviousEndpoint({ previousEndpoint: 'https://push.example.test/old' })).toBe(
+      'https://push.example.test/old',
+    )
+    expect(validatePreviousEndpoint({})).toBeUndefined()
+    expect(validatePreviousEndpoint({ previousEndpoint: null })).toBeUndefined()
+    expect(() => validatePreviousEndpoint({ previousEndpoint: 7 })).toThrow(/previous endpoint/)
+
+    expect(declaresPreferences({ preferences: { bodyMode: 'summary' } })).toBe(true)
+    expect(declaresPreferences({ previousEndpoint: 'https://push.example.test/old' })).toBe(false)
+    expect(declaresPreferences(undefined)).toBe(false)
   })
 
   it('keeps accepting every real Push service and the public edge of each blocked range', () => {

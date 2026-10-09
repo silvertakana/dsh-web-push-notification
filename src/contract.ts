@@ -15,6 +15,12 @@ export interface PushSubscriptionJson {
     readonly auth?: string
   }
   readonly preferences?: NotificationPreferences
+  /**
+   * Endpoint this registration replaces, set by the Service Worker when the
+   * browser rotates a subscription. The server copies the replaced record's
+   * preferences when the request carries none of its own.
+   */
+  readonly previousEndpoint?: string
 }
 
 /**

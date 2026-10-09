@@ -40,6 +40,35 @@ export function validateSubscription(value: unknown): PushSubscriptionRecord {
   }
 }
 
+/**
+ * The endpoint a renewal replaces, as named by the caller.
+ *
+ * It is only ever a lookup key for the record it supersedes, never an address
+ * this process dials, so it is checked for shape rather than for host safety:
+ * a record stored before the host policy existed must still be renewable.
+ */
+export function validatePreviousEndpoint(value: unknown): string | undefined {
+  if (!isRecord(value)) return undefined
+  const endpoint = value.previousEndpoint
+  // JSON has two spellings for "absent", the same pair expirationTime accepts.
+  if (endpoint === undefined || endpoint === null) return undefined
+  if (typeof endpoint !== 'string' || endpoint.length === 0 || endpoint.length > MAX_ENDPOINT_LENGTH) {
+    throw new Error('previous endpoint must be a non-empty string')
+  }
+  return endpoint
+}
+
+/**
+ * Whether a subscription request carried its own notification preferences.
+ *
+ * `validateSubscription` answers that omission with the defaults, which is right
+ * for a first registration and wrong for a renewal: a device that chose "summary
+ * only" would be switched back to full bodies by a rotation it never asked for.
+ */
+export function declaresPreferences(value: unknown): boolean {
+  return isRecord(value) && value.preferences !== undefined
+}
+
 export function validatePreferences(value: unknown): NotificationPreferences {
   if (value === undefined) return { ...DEFAULT_NOTIFICATION_PREFERENCES }
   if (
@@ -203,12 +232,27 @@ function parseEndpoint(value: unknown, invalidMessage: string): string {
  * so without this an authenticated client could aim the sender at its own LAN.
  * Every legitimate value is a public Push service the browser chose, so
  * rejecting the private ranges costs no real endpoint.
+ *
+ * This reads the host as written, which makes it a speed bump rather than a
+ * wall: a name that resolves to a private address is accepted here, because the
+ * lookup happens later, inside the sender, and a name can answer with a public
+ * address now and a private one a moment later. An accepted endpoint is
+ * therefore not proof that the destination is public; treat the operator as the
+ * last line of defence and keep the route behind the session gate.
  */
 function isPrivateHost(hostname: string): boolean {
-  const host = hostname.replace(/^\[/, '').replace(/\]$/, '').toLowerCase()
+  // A trailing dot is the same name to DNS. The URL parser drops it from a
+  // dotted-quad address but keeps it on a name, so `localhost.` would otherwise
+  // walk straight past the checks below.
+  const unrooted = hostname.replace(/^\[/, '').replace(/\]$/, '').toLowerCase()
+  const host = unrooted.endsWith('.') ? unrooted.slice(0, -1) : unrooted
   if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) return true
   if (host.includes(':')) {
     if (host === '::' || host === '::1') return true
+    // ::ffff:127.0.0.1 addresses the same host as 127.0.0.1, and only the dotted
+    // spelling reaches the IPv4 rules below, so unwrap the mapped form first.
+    const mapped = mappedIpv4(host)
+    if (mapped !== undefined) return isPrivateHost(mapped)
     // fc00::/7 unique-local and fe80::/10 link-local. Requiring the colon keeps
     // these from firing on a hostname that merely begins with "fc".
     if (/^f[cd][0-9a-f]{2}:/.test(host)) return true
@@ -224,6 +268,24 @@ function isPrivateHost(hostname: string): boolean {
   if (first === 172 && second >= 16 && second <= 31) return true
   if (first === 192 && second === 168) return true
   return false
+}
+
+/**
+ * The IPv4 address an IPv4-mapped IPv6 literal stands for, in its dotted form,
+ * or undefined for every other IPv6 address.
+ *
+ * The URL parser normalizes `::ffff:127.0.0.1` to `::ffff:7f00:1`, so both
+ * spellings are read here rather than trusting the one that happens to arrive.
+ */
+function mappedIpv4(host: string): string | undefined {
+  const dotted = /^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/.exec(host)
+  if (dotted !== null) return dotted[1]
+  const pair = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(host)
+  if (pair === null) return undefined
+  const high = Number.parseInt(pair[1] ?? '', 16)
+  const low = Number.parseInt(pair[2] ?? '', 16)
+  if (Number.isNaN(high) || Number.isNaN(low)) return undefined
+  return `${String(high >> 8)}.${String(high & 0xff)}.${String(low >> 8)}.${String(low & 0xff)}`
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

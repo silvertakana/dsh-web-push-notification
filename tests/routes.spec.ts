@@ -143,6 +143,63 @@ describe('Web Push routes', () => {
     expect(store.list()).toEqual([])
   })
 
+  it('carries a rotated subscription\u2019s preferences over from the endpoint it replaces', async () => {
+    root = mkdtempSync(join(tmpdir(), 'dsh-web-push-routes-'))
+    const store = PushStore.open(join(root, 'state.json'), () => ({ publicKey: 'AQID', privateKey: 'BAUG' }))
+    const routes = routesFor({
+      store,
+      sender: { send: vi.fn(async () => {}) },
+      maxRequestBodyBytes: 1024,
+      requestRejection: authenticated,
+    })
+    const chosen = {
+      turnCompleted: false,
+      turnFailed: true,
+      approval: false,
+      question: false,
+      subagentRuns: false,
+      bodyMode: 'summary' as const,
+    }
+    const first = response()
+    await find('/__dsh/web-push/subscribe', routes).handler(
+      request('POST', { ...subscription, preferences: chosen }),
+      first.response,
+    )
+    expect(first.status).toBe(200)
+
+    // What the worker sends after the browser rotates the subscription: new keys,
+    // no preferences of its own, and the endpoint being replaced.
+    const rotated = response()
+    await find('/__dsh/web-push/subscribe', routes).handler(
+      request('POST', {
+        endpoint: 'https://push.example.test/send/two',
+        expirationTime: null,
+        keys: { p256dh: 'AQID', auth: 'BAUG' },
+        previousEndpoint: subscription.endpoint,
+      }),
+      rotated.response,
+    )
+    expect(rotated.status).toBe(200)
+    expect(store.list().find((record) => record.endpoint.endsWith('/two'))?.preferences).toEqual(chosen)
+
+    // A first registration still gets the defaults, and so does a renewal that
+    // names an endpoint this host has never seen.
+    for (const endpoint of ['https://push.example.test/send/three', 'https://push.example.test/send/four']) {
+      const fresh = response()
+      await find('/__dsh/web-push/subscribe', routes).handler(
+        request('POST', {
+          endpoint,
+          expirationTime: null,
+          keys: { p256dh: 'AQID', auth: 'BAUG' },
+          ...(endpoint.endsWith('/four') ? { previousEndpoint: 'https://push.example.test/unknown' } : {}),
+        }),
+        fresh.response,
+      )
+      expect(fresh.status, endpoint).toBe(200)
+      expect(store.list().find((record) => record.endpoint === endpoint)?.preferences.bodyMode, endpoint).toBe('full')
+    }
+  })
+
   it('keeps a failed delivery from rejecting the test route', async () => {
     root = mkdtempSync(join(tmpdir(), 'dsh-web-push-routes-'))
     const store = PushStore.open(join(root, 'state.json'), () => ({ publicKey: 'AQID', privateKey: 'BAUG' }))

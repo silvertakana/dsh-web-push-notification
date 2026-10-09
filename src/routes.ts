@@ -16,8 +16,10 @@ import type { PushSender } from './sender.ts'
 import { SERVICE_WORKER_SOURCE } from './service-worker.ts'
 import type { PushStore } from './store.ts'
 import {
+  declaresPreferences,
   validateEndpoint,
   validatePresence,
+  validatePreviousEndpoint,
   validateSettings,
   validateSubscription,
   validateTestMessage,
@@ -106,9 +108,18 @@ export function createPushRoutes(options: PushRouteOptions): WebRoute[] {
       kind: 'exact',
       path: SUBSCRIBE_PATH,
       handler: method('POST', async (req, res) => {
-        const subscription = await clientInput(async () =>
-          validateSubscription(await readJson(req, options.maxRequestBodyBytes)),
-        )
+        const subscription = await clientInput(async () => {
+          const body = await readJson(req, options.maxRequestBodyBytes)
+          const incoming = validateSubscription(body)
+          // A rotated subscription arrives without preferences, because the
+          // worker cannot read the ones this device chose. Inheriting them from
+          // the record it replaces keeps a "summary only" device from being
+          // switched back to full bodies by a rotation it never asked for.
+          if (declaresPreferences(body)) return incoming
+          const previous = validatePreviousEndpoint(body)
+          const inherited = previous === undefined ? undefined : options.store.preferencesOf(previous)
+          return inherited === undefined ? incoming : { ...incoming, preferences: inherited }
+        })
         options.store.upsert(subscription)
         sendJson(res, 200, { ok: true })
       }),

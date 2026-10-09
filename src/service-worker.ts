@@ -8,10 +8,10 @@ const fallback = { title: 'DeepSeek Harness', body: 'A notification is ready.' }
 const icon = new URL('notification-icon.png', self.location).href;
 const badge = new URL('notification-badge.png', self.location).href;
 
-// Android draws at most two action buttons under an expanded notification, and
-// its own ceiling is two: a third is not ignored, it throws. A platform that
-// reports no limit is assumed to accept that many rather than shipping a row
-// with no way to open it.
+// Web Notifications renders at most Notification.maxActions action buttons and
+// silently drops every extra one rather than failing; Chromium reports two. A
+// platform that reports no limit is assumed to accept that many rather than
+// shipping a row with no way to open it.
 const reportedActions = self.Notification ? Number(self.Notification.maxActions) : 0;
 const actionLimit = reportedActions > 0 ? Math.min(reportedActions, 2) : 2;
 const actions = [
@@ -95,34 +95,48 @@ function base64UrlToBytes(value) {
   return bytes;
 }
 
-function post(path, body) {
-  return fetch(path, {
+async function post(path, body) {
+  const response = await fetch(path, {
     method: 'POST',
     credentials: 'same-origin',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
   });
+  // A rejected POST resolves like any other response, so without this a failed
+  // registration is indistinguishable from a successful one: the caller would
+  // retire a working endpoint in favour of a record the server never stored.
+  if (!response.ok) throw new Error(path + ' answered ' + response.status);
+  return response;
 }
 
 // A browser silently rotates a Push subscription over time. Without this the
 // saved endpoint goes stale and delivery stops with no visible symptom, so the
-// worker renews itself and retires the endpoint it replaced.
+// worker renews itself and retires the endpoint it replaced — but only once the
+// replacement is stored.
 self.addEventListener('pushsubscriptionchange', (event) => {
   const previous = event.oldSubscription;
+  const replaced = previous && typeof previous.endpoint === 'string' ? previous.endpoint : undefined;
   event.waitUntil((async () => {
     try {
       let next = event.newSubscription;
       if (!next) {
         const response = await fetch('/__dsh/web-push/config', { credentials: 'same-origin' });
+        if (!response.ok) throw new Error('/__dsh/web-push/config answered ' + response.status);
         const config = await response.json();
         next = await self.registration.pushManager.subscribe({
           userVisibleOnly: true,
           applicationServerKey: base64UrlToBytes(config.publicKey),
         });
       }
-      await post('/__dsh/web-push/subscribe', next.toJSON());
-      if (previous && previous.endpoint !== next.endpoint) {
-        await post('/__dsh/web-push/unsubscribe', { endpoint: previous.endpoint });
+      // The subscription the browser hands over carries no preferences: those
+      // live in localStorage, which this worker cannot read. Naming the endpoint
+      // being replaced lets the server carry them over instead of falling back
+      // to defaults, which would widen a "summary only" device back to full.
+      const body = next.toJSON();
+      if (replaced !== undefined) body.previousEndpoint = replaced;
+      await post('/__dsh/web-push/subscribe', body);
+      if (replaced !== undefined && replaced !== next.endpoint) {
+        await post('/__dsh/web-push/unsubscribe', { endpoint: replaced });
       }
     } catch (_) {
       // A failed renewal leaves a stale record behind; the settings section
