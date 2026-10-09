@@ -33,11 +33,15 @@ The bundle's `cordis.patch.yml` inserts the plugin and supplies the required
 `https:` URL, and replace the placeholder with your own address. It is
 independent of the address used to open DeepSeek Harness.
 
-VAPID keys and subscriptions are stored in `$DSH_HOME/web-push/state.json`. The
-state file is deliberately outside the profile's package directory: an upgrade
-or reinstall would otherwise replace it, rotate the VAPID key, and silently
-orphan every subscription the browser still believes is active. Set
-`storagePath` in the plugin configuration only to use another location.
+VAPID keys and subscriptions are stored in `web-push/state.json` inside the
+profile's own directory (for example
+`$DSH_HOME/profiles/web/web-push/state.json`). Two things follow from that
+location. The state is outside the profile's package directory, so an upgrade or
+reinstall cannot replace it and rotate the VAPID key, silently orphaning every
+subscription the browser still believes is active. And it is per profile, so a
+second profile's sessions never reach the first profile's browser, which is what
+a single file under the Harness home would do. Set `storagePath` in the plugin
+configuration only to use another location.
 
 Installing a bundle adds a package to the profile, so it needs a Harness
 restart before the plugin loads. Restart with `dshw-restart.ps1`.
@@ -142,8 +146,9 @@ badge, served by this plugin at `/__dsh/web-push/notification-icon.png` and
 `/__dsh/web-push/notification-badge.png`. Those two routes answer without the
 session gate on purpose: the browser fetches a notification icon by itself, so
 demanding the app cookie would silently hand back the grey placeholder disc
-browsers draw for a missing icon. The files are the app's own artwork, not
-state.
+browsers draw for a missing icon. The files are artwork derived from the Harness
+app mark rather than plugin state, and their license is recorded in
+[Third-Party Notices](THIRD_PARTY_NOTICES.md).
 
 The badge is the dsh mark as a white silhouette on transparency, since Chrome
 tints it with `PorterDuff SRC_ATOP` over white and only its alpha channel
@@ -179,12 +184,19 @@ whatever root-scope worker owns the page.
   longer than a minute previously lost the notification entirely, which is the
   case lock-screen notifications exist for.
 - Added a `pushsubscriptionchange` handler, so a subscription the browser
-  rotates is re-registered and the superseded endpoint removed instead of
-  going silently stale.
-- State moved from the plugin package directory to `$DSH_HOME/web-push/`.
+  rotates is re-registered, keeps the preferences that device chose, and has the
+  superseded endpoint removed only once the replacement is stored.
+- State moved out of the plugin package directory, to `web-push/state.json` under
+  the profile directory. The old bundle-local `web-push.json` is adopted on first
+  boot, so an upgrading deployment keeps its VAPID key and subscriptions. A file
+  at the earlier 0.2.x preview location (`$DSH_HOME/web-push/state.json`) is
+  deliberately left alone: state that every profile wrote to cannot be attributed
+  to one of them, so the deployment re-enables notifications once instead.
 - Subscription endpoints addressing a private, loopback, or link-local host are
-  rejected, closing an SSRF path where an authenticated client could aim the
-  sender at its own LAN.
+  rejected, including the IPv4-mapped IPv6 and trailing-dot spellings of the same
+  address. A hostname that merely resolves to a private address is still accepted,
+  because the lookup happens later inside the sender; the session gate in front of
+  the routes, not this check, is what keeps the sender off an operator's LAN.
 - Session navigation uses `uiWorkspace.openSession` instead of the removed
   `sessions.open`, and the icon import uses an export that exists on the
   current client packages.
