@@ -1,3 +1,6 @@
+import { readdirSync, statSync } from 'node:fs'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
@@ -46,20 +49,93 @@ export const Config = z.object({
 })
 
 /**
- * Storage lives under the Harness home, never beside the installed bundle: a
- * profile install owns the package directory, so reinstalling or upgrading
- * would replace the state file, rotate the VAPID key, and silently orphan
- * every subscription the browser still believes is active.
+ * The profile service the Harness provides inside a profile it launched. Read
+ * structurally rather than imported: this plugin has no dependency on the boot
+ * package, and the service is simply absent outside a profile.
  */
-export function defaultStoragePath(): string {
-  return dshHomePath('web-push', 'state.json')
+interface ProfileService {
+  readonly name?: string
+  readonly dir?: string
+}
+
+/**
+ * State lives in the current profile's directory, and never somewhere shared.
+ *
+ * Every profile under one Harness home used to resolve to the same file, so a
+ * second profile pushed its sessions to the first profile's browser and the two
+ * overwrote each other's subscription list on every write. Outside a profile —
+ * a custom composition, a test — there is nothing to be per-profile about, so
+ * the old location stays as the fallback.
+ */
+export function defaultStoragePath(ctx: Context): string {
+  const dir = profileDirectory(ctx)
+  return dir === undefined ? dshHomePath('web-push', 'state.json') : join(dir, 'web-push', 'state.json')
+}
+
+/** The directory of the profile this process runs in, when it runs in one. */
+function profileDirectory(ctx: Context): string | undefined {
+  const profile = ctx.get('profileContext') as ProfileService | undefined
+  return typeof profile?.dir === 'string' && profile.dir !== '' ? profile.dir : undefined
+}
+
+/**
+ * Every place a 0.1.1 deployment may have left its `web-push.json`, newest first.
+ *
+ * That file used to sit beside the installed bundle, so the installer that
+ * brings in this version may already have removed the directory it lived in.
+ * Candidates are therefore collected from every location it could occupy — the
+ * bundle itself, the profile's package directory, and the pnpm store's
+ * per-version directories — and the first one still holding a valid store wins.
+ * The originals are read, never moved or deleted.
+ */
+export function legacyStoragePaths(ctx: Context): string[] {
+  const candidates: string[] = []
+  if (ctx.baseUrl !== undefined) candidates.push(fileURLToPath(new URL('web-push.json', ctx.baseUrl)))
+  const dir = profileDirectory(ctx)
+  if (dir !== undefined) {
+    const nodeModules = join(dir, 'node_modules')
+    candidates.push(join(nodeModules, 'dsh-web-push-notification', 'web-push.json'))
+    const store = join(nodeModules, '.pnpm')
+    for (const entry of storeEntries(store)) {
+      candidates.push(join(store, entry, 'node_modules', 'dsh-web-push-notification', 'web-push.json'))
+    }
+  }
+  return candidates.sort((left, right) => modifiedAt(right) - modifiedAt(left))
+}
+
+/** Version directories a pnpm store keeps for this plugin. */
+function storeEntries(store: string): string[] {
+  try {
+    return readdirSync(store, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && entry.name.startsWith('dsh-web-push-notification@'))
+      .map((entry) => entry.name)
+  } catch {
+    return []
+  }
+}
+
+function modifiedAt(path: string): number {
+  try {
+    return statSync(path).mtimeMs
+  } catch {
+    return 0
+  }
 }
 
 export function apply(ctx: Context, config?: Config): void {
   const subject = config?.vapidSubject ?? DEFAULT_VAPID_SUBJECT
-  const storagePath = config?.storagePath ?? defaultStoragePath()
+  const storagePath = config?.storagePath ?? defaultStoragePath(ctx)
   const maxRequestBodyBytes = config?.maxRequestBodyBytes ?? DEFAULT_MAX_REQUEST_BODY_BYTES
-  const store = PushStore.open(storagePath, generateVapidKeys)
+  // An explicit storagePath is a deliberate deployment choice; only the default
+  // location needs to look for the state a previous version left behind.
+  const store = PushStore.open(
+    storagePath,
+    generateVapidKeys,
+    config?.storagePath === undefined ? legacyStoragePaths(ctx) : [],
+  )
+  if (store.migratedFrom !== undefined) {
+    ctx.logger.info(`dsh-web-push-notification: adopted push state from ${store.migratedFrom}`)
+  }
   const presence = new PresenceRegistry()
   const sender = createWebPushSender(subject, {
     publicKey: store.publicKey,

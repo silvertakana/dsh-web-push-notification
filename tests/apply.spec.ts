@@ -1,8 +1,9 @@
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { apply, Config, DEFAULT_MAX_REQUEST_BODY_BYTES, DEFAULT_VAPID_SUBJECT } from '../src/index.ts'
 import { PushStore } from '../src/store.ts'
@@ -67,6 +68,48 @@ describe('host plugin registration', () => {
     ])
     for (const dispose of disposers) dispose()
     expect(routes).toEqual([])
+  })
+
+  it('keeps each profile\u2019s state inside that profile\u2019s directory', () => {
+    root = mkdtempSync(join(tmpdir(), 'dsh-web-push-apply-'))
+    const previousHome = process.env.DSH_HOME
+    process.env.DSH_HOME = join(root, 'home')
+    try {
+      const stateFor = (profile: string): string => {
+        const dir = join(root, 'profiles', profile)
+        mkdirSync(dir, { recursive: true })
+        const ctx = {
+          baseUrl: `${pathToFileURL(dir).href}/`,
+          get(name: string) {
+            return name === 'profileContext' ? { name: profile, dir } : undefined
+          },
+          connection: { requestRejection: () => undefined },
+          webServer: { register: () => () => {} },
+          logger: { info: vi.fn(), warn: vi.fn() },
+          on() {
+            return () => {}
+          },
+          effect(factory: () => (() => void) | undefined) {
+            factory()
+          },
+        }
+        apply(ctx as never, { vapidSubject: 'mailto:test@example.invalid', maxRequestBodyBytes: 1024 })
+        return join(dir, 'web-push', 'state.json')
+      }
+
+      const web = stateFor('web')
+      const webSafe = stateFor('web-safe')
+      expect(existsSync(web)).toBe(true)
+      expect(existsSync(webSafe)).toBe(true)
+      // Two profiles share one Harness home; a single shared file would let the
+      // second profile push its sessions at the first one's browser and overwrite
+      // its subscription list on every write.
+      expect(web).not.toBe(webSafe)
+      expect(existsSync(dshHomePath('web-push', 'state.json'))).toBe(false)
+    } finally {
+      if (previousHome === undefined) delete process.env.DSH_HOME
+      else process.env.DSH_HOME = previousHome
+    }
   })
 
   it('delivers an event to eligible subscriptions and contains one send failure', async () => {
@@ -292,17 +335,26 @@ describe('host plugin registration', () => {
     })
   })
 
-  it('keeps push state under the Harness home instead of the installed package directory', () => {
+  it('falls back to the Harness home outside a profile, and adopts the legacy file it finds', () => {
     root = mkdtempSync(join(tmpdir(), 'dsh-web-push-apply-'))
     const packageBase = mkdtempSync(join(tmpdir(), 'dsh-web-push-pkg-'))
     const previousHome = process.env.DSH_HOME
     process.env.DSH_HOME = root
     try {
+      // What 0.1.1 kept beside its bundle.
+      const legacyPath = join(packageBase, 'web-push.json')
+      writeFileSync(
+        legacyPath,
+        JSON.stringify({ version: 1, vapid: { publicKey: 'LEGACYKEY', privateKey: 'BAUG' }, subscriptions: [] }),
+      )
       const ctx = {
         baseUrl: `${pathToFileURL(packageBase).href}/`,
+        get() {
+          return undefined
+        },
         connection: { requestRejection: () => undefined },
         webServer: { register: () => () => {} },
-        logger: { warn: vi.fn() },
+        logger: { info: vi.fn(), warn: vi.fn() },
         on() {
           return () => {}
         },
@@ -314,8 +366,15 @@ describe('host plugin registration', () => {
         vapidSubject: 'mailto:test@example.invalid',
         maxRequestBodyBytes: 1024,
       })
-      expect(existsSync(join(root, 'web-push', 'state.json'))).toBe(true)
-      expect(existsSync(join(packageBase, 'web-push.json'))).toBe(false)
+      // No profile service means no per-profile location, so the shared path
+      // under the Harness home stays as the fallback.
+      const statePath = join(root, 'web-push', 'state.json')
+      expect(existsSync(statePath)).toBe(true)
+      const persisted = JSON.parse(readFileSync(statePath, 'utf8')) as { vapid: { publicKey: string } }
+      // The key the browser's subscription was minted against comes along,
+      // instead of being rotated away into a device that never rings again.
+      expect(persisted.vapid.publicKey).toBe('LEGACYKEY')
+      expect(existsSync(legacyPath)).toBe(true)
     } finally {
       if (previousHome === undefined) delete process.env.DSH_HOME
       else process.env.DSH_HOME = previousHome
